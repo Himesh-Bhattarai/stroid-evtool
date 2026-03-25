@@ -186,16 +186,24 @@ function inferStatusFromEvent(event?: DevtoolEvent): StoreStatus {
   }
 }
 
+function isIterableSource(value: unknown): value is Iterable<unknown> {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  return Symbol.iterator in value;
+}
+
 function toStoreArray(source: Iterable<unknown> | Record<string, unknown> | unknown[]): unknown[] {
   if (Array.isArray(source)) {
     return source;
   }
 
-  if (typeof source[Symbol.iterator] === "function") {
+  if (isIterableSource(source)) {
     return [...source];
   }
 
-  return Object.values(source);
+  return Object.values(source as Record<string, unknown>);
 }
 
 export function normalizeDevtoolEvent(rawEvent: unknown): DevtoolEvent {
