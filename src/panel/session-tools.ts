@@ -1,3 +1,7 @@
+/**
+ * Shared advanced panel helpers for snapshots, performance analysis, schema validation,
+ * session export, and scripted scenario playback.
+ */
 import { diff, summarizeDiff } from "../diff/index.js";
 import type { StoreDiagnostics } from "./analytics.js";
 import type { DependencyEdge, DerivedTrace, StoreHealthReport } from "./insights.js";
