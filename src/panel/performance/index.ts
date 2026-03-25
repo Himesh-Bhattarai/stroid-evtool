@@ -1,4 +1,4 @@
-import type { PerformanceReport } from "../phase4.js";
+import type { PerformanceReport } from "../session-tools.js";
 
 export interface PerformanceRenderModel {
   report: PerformanceReport;
