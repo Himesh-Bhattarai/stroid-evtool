@@ -18,7 +18,7 @@ export interface TimelineRenderModel {
   onEventTypeFilterChange(value: string): void;
   onModeChange(mode: RuntimeMode): void;
   onReplay(speed: number): void;
-  onViewChange(view: "timeline" | "graph"): void;
+  onViewChange(view: "timeline" | "graph" | "performance"): void;
   onJumpToEvent(eventId: string, storeId?: string): void;
 }
 
@@ -71,6 +71,9 @@ export function renderTimeline(
     }),
     createToggleChip("Graph", false, () => {
       model.onViewChange("graph");
+    }),
+    createToggleChip("Performance", false, () => {
+      model.onViewChange("performance");
     }),
   );
 
