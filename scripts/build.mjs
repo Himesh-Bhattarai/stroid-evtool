@@ -9,12 +9,18 @@ const readmePath = join(root, "README.md");
 
 rmSync(distDir, { recursive: true, force: true });
 
-const command = process.platform === "win32" ? "tsc.cmd" : "tsc";
-const compile = spawnSync(command, ["-p", "tsconfig.json"], {
-  cwd: root,
-  stdio: "inherit",
-  shell: false,
-});
+const compile =
+  process.platform === "win32"
+    ? spawnSync("cmd", ["/c", "tsc.cmd", "-p", "tsconfig.json"], {
+        cwd: root,
+        stdio: "inherit",
+        shell: false,
+      })
+    : spawnSync("tsc", ["-p", "tsconfig.json"], {
+        cwd: root,
+        stdio: "inherit",
+        shell: false,
+      });
 
 if (compile.status !== 0) {
   process.exit(compile.status ?? 1);
