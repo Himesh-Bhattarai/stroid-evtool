@@ -1,3 +1,14 @@
+/**
+ * @module src/panel/inspector/index
+ * @memberof StroidDevtools
+ * @typedef {Record<string, unknown>} ModuleDocShape
+ * @what owns Core logic for src/panel/inspector/index.
+ * @who owns Stroid Devtools maintainers.
+ * @likelyBreakpoint Runtime event normalization, UI render paths, or command routing in this module.
+ * @param {unknown} [input] Module-level JSDoc anchor for tooling consistency.
+ * @returns {void}
+ * @public
+ */
 import type { DiffResult } from "../../diff/index.js";
 import type { FieldHistoryPoint, StoreAlert } from "../analytics.js";
 import type {
@@ -8,6 +19,7 @@ import type {
 } from "../insights.js";
 import type {
   SchemaReport,
+  ScenarioStepResult,
   SlowAnalysis,
   SnapshotComparison,
   SnapshotRecord,
@@ -29,23 +41,33 @@ export interface InspectorRenderModel {
   health: StoreHealthReport | null;
   slowAnalysis: SlowAnalysis | null;
   schemaReport: SchemaReport | null;
+  schemaTypeMap: Record<string, string>;
   snapshotEvent: DevtoolEvent | null;
   snapshots: SnapshotRecord[];
   snapshotNameDraft: string;
   snapshotComparison: SnapshotComparison | null;
+  stateSearchQuery: string;
   editDraft: string;
   editError: string | null;
+  mutatorNameDraft: string;
+  mutatorArgsDraft: string;
+  mutatorError: string | null;
   scenarioDraft: string;
   scenarioStatus: string | null;
   scenarioLog: string[];
+  scenarioSteps: ScenarioStepResult[];
   onDraftChange(value: string): void;
   onApplyDraft(): void;
   onSelectField(path: string): void;
   onClearSnapshot(): void;
+  onStateSearchChange(value: string): void;
   onSnapshotNameChange(value: string): void;
   onSaveSnapshot(): void;
   onSelectSnapshot(side: "left" | "right", snapshotId: string): void;
   onRestoreSnapshot(snapshotId: string): void;
+  onMutatorNameChange(value: string): void;
+  onMutatorArgsChange(value: string): void;
+  onRunMutator(): void;
   onScenarioDraftChange(value: string): void;
   onRunScenario(): void;
 }
@@ -91,6 +113,14 @@ export function renderStoreInspector(
   const toolbarActions = document.createElement("div");
   toolbarActions.className = "mode-switcher";
 
+  const searchInput = document.createElement("input");
+  searchInput.className = "timeline-select";
+  searchInput.placeholder = "Search key/value";
+  searchInput.value = model.stateSearchQuery;
+  searchInput.addEventListener("input", () => {
+    model.onStateSearchChange(searchInput.value);
+  });
+
   const copyButton = document.createElement("button");
   copyButton.type = "button";
   copyButton.className = "action-button";
@@ -101,7 +131,7 @@ export function renderStoreInspector(
     );
   });
 
-  toolbarActions.append(copyButton);
+  toolbarActions.append(searchInput, copyButton);
 
   if (model.snapshotEvent) {
     const liveButton = document.createElement("button");
@@ -170,24 +200,30 @@ export function renderStoreInspector(
 
   const currentSection = document.createElement("section");
   currentSection.className = "inspector-section";
+  const currentTree = renderValueTree("root", model.store.currentState, {
+    path: [],
+    selectedFieldPath: model.selectedFieldPath,
+    onSelectField: model.onSelectField,
+    query: model.stateSearchQuery,
+    schemaTypeMap: model.schemaTypeMap,
+  });
   currentSection.append(
     createSectionHeading("Current State"),
-    renderValueTree("root", model.store.currentState, {
-      path: [],
-      selectedFieldPath: model.selectedFieldPath,
-      onSelectField: model.onSelectField,
-    }),
+    currentTree ?? createEmptyState("No current-state paths match the search query."),
   );
 
   const previousSection = document.createElement("section");
   previousSection.className = "inspector-section";
+  const previousTree = renderValueTree("root", model.store.previousState, {
+    path: [],
+    selectedFieldPath: model.selectedFieldPath,
+    onSelectField: model.onSelectField,
+    query: model.stateSearchQuery,
+    schemaTypeMap: model.schemaTypeMap,
+  });
   previousSection.append(
     createSectionHeading("Previous State"),
-    renderValueTree("root", model.store.previousState, {
-      path: [],
-      selectedFieldPath: model.selectedFieldPath,
-      onSelectField: model.onSelectField,
-    }),
+    previousTree ?? createEmptyState("No previous-state paths match the search query."),
   );
 
   container.append(
@@ -245,20 +281,36 @@ function renderValueTree(
     path: string[];
     selectedFieldPath: string | null;
     onSelectField(path: string): void;
+    query: string;
+    schemaTypeMap: Record<string, string>;
   },
   depth = 0,
   seen = new WeakSet<object>(),
-): HTMLElement {
+): HTMLElement | null {
+  const normalizedQuery = options.query.trim().toLowerCase();
+  const pathLabel = formatPath(options.path);
+  const expectedType = options.schemaTypeMap[pathLabel];
+
   if (value === undefined) {
-    return renderLeaf(label, "undefined", options);
+    if (!matchesQuery(label, "undefined", normalizedQuery, expectedType)) {
+      return null;
+    }
+    return renderLeaf(label, "undefined", options, expectedType);
   }
 
   if (value === null || typeof value !== "object") {
-    return renderLeaf(label, formatPrimitive(value), options);
+    const primitive = formatPrimitive(value);
+    if (!matchesQuery(label, primitive, normalizedQuery, expectedType)) {
+      return null;
+    }
+    return renderLeaf(label, primitive, options, expectedType);
   }
 
   if (seen.has(value)) {
-    return renderLeaf(label, "[Circular]", options);
+    if (!matchesQuery(label, "[Circular]", normalizedQuery, expectedType)) {
+      return null;
+    }
+    return renderLeaf(label, "[Circular]", options, expectedType);
   }
 
   seen.add(value);
@@ -279,6 +331,12 @@ function renderValueTree(
   shape.textContent = describeShape(value);
 
   summary.append(key, shape);
+  if (expectedType) {
+    const typeHint = document.createElement("span");
+    typeHint.className = "state-tag";
+    typeHint.textContent = expectedType;
+    summary.append(typeHint);
+  }
   details.append(summary);
 
   const entries = Array.isArray(value)
@@ -286,23 +344,39 @@ function renderValueTree(
     : Object.entries(value);
 
   if (entries.length === 0) {
-    details.append(renderLeaf("empty", Array.isArray(value) ? "[]" : "{}", options));
+    const emptyNode = renderLeaf("empty", Array.isArray(value) ? "[]" : "{}", options);
+    if (emptyNode) {
+      details.append(emptyNode);
+    }
+
+    if (normalizedQuery && !matchesQuery(label, describeShape(value), normalizedQuery, expectedType)) {
+      return null;
+    }
     return details;
   }
 
+  let hasChild = false;
   for (const [entryLabel, entryValue] of entries) {
-    details.append(
-      renderValueTree(
-        entryLabel,
-        entryValue,
-        {
-          ...options,
-          path: [...options.path, entryLabel],
-        },
-        depth + 1,
-        seen,
-      ),
+    const child = renderValueTree(
+      entryLabel,
+      entryValue,
+      {
+        ...options,
+        path: [...options.path, entryLabel],
+      },
+      depth + 1,
+      seen,
     );
+    if (!child) {
+      continue;
+    }
+
+    hasChild = true;
+    details.append(child);
+  }
+
+  if (!hasChild && normalizedQuery && !matchesQuery(label, describeShape(value), normalizedQuery, expectedType)) {
+    return null;
   }
 
   return details;
@@ -316,6 +390,7 @@ function renderLeaf(
     selectedFieldPath: string | null;
     onSelectField(path: string): void;
   },
+  expectedType?: string,
 ): HTMLButtonElement {
   const row = document.createElement("button");
   row.type = "button";
@@ -336,6 +411,14 @@ function renderLeaf(
   body.textContent = value;
 
   row.append(key, body);
+
+  if (expectedType) {
+    const hint = document.createElement("span");
+    hint.className = "state-tag";
+    hint.textContent = expectedType;
+    row.append(hint);
+  }
+
   return row;
 }
 
@@ -567,10 +650,11 @@ function createConstraintSection(
   }
 
   if (events.length > 0) {
+    const heatmap = createConstraintHeatmap(events);
     const hint = document.createElement("p");
     hint.className = "ghost-copy";
     hint.textContent = `${events.length} PSR events captured for this store.`;
-    section.append(list, hint);
+    section.append(list, heatmap, hint);
     return section;
   }
 
@@ -746,6 +830,34 @@ function createScenarioSection(model: InspectorRenderModel): HTMLElement {
     section.append(log);
   }
 
+  if (model.scenarioSteps.length > 0) {
+    const stepList = document.createElement("div");
+    stepList.className = "diff-list";
+
+    for (const step of model.scenarioSteps) {
+      const card = document.createElement("div");
+      card.className = "diff-card";
+
+      const title = document.createElement("strong");
+      title.textContent = step.label;
+
+      const time = document.createElement("p");
+      time.className = "ghost-copy";
+      time.textContent = `${formatTimestamp(step.startedAt)} -> ${formatTimestamp(step.finishedAt)}`;
+
+      const changes = document.createElement("div");
+      changes.className = "badge-row";
+      for (const change of step.changes.length > 0 ? step.changes : [{ storeId: "runtime", summary: "no structural changes" }]) {
+        changes.append(createToken(`${change.storeId}: ${change.summary}`));
+      }
+
+      card.append(title, time, changes);
+      stepList.append(card);
+    }
+
+    section.append(stepList);
+  }
+
   return section;
 }
 
@@ -799,12 +911,44 @@ function createControlSection(model: InspectorRenderModel): HTMLElement {
     model.onApplyDraft();
   });
 
-  footer.append(applyButton);
+  const mutatorInput = document.createElement("input");
+  mutatorInput.className = "timeline-select";
+  mutatorInput.placeholder = "Mutator name";
+  mutatorInput.value = model.mutatorNameDraft;
+  mutatorInput.addEventListener("input", () => {
+    model.onMutatorNameChange(mutatorInput.value);
+  });
+
+  const mutatorArgsInput = document.createElement("input");
+  mutatorArgsInput.className = "timeline-select";
+  mutatorArgsInput.placeholder = "Mutator args JSON array";
+  mutatorArgsInput.value = model.mutatorArgsDraft;
+  mutatorArgsInput.addEventListener("input", () => {
+    model.onMutatorArgsChange(mutatorArgsInput.value);
+  });
+
+  const mutatorButton = document.createElement("button");
+  mutatorButton.type = "button";
+  mutatorButton.className = "action-button";
+  mutatorButton.textContent = "Run Mutator";
+  mutatorButton.addEventListener("click", () => {
+    model.onRunMutator();
+  });
+
+  footer.append(applyButton, mutatorInput, mutatorArgsInput, mutatorButton);
 
   if (model.editError) {
     const error = document.createElement("p");
     error.className = "control-error";
     error.textContent = model.editError;
+    section.append(textarea, footer, error);
+    return section;
+  }
+
+  if (model.mutatorError) {
+    const error = document.createElement("p");
+    error.className = "control-error";
+    error.textContent = model.mutatorError;
     section.append(textarea, footer, error);
     return section;
   }
@@ -843,3 +987,85 @@ function diffTone(kind: "added" | "removed" | "modified"): "success" | "error" |
 function formatPath(path: string[]): string {
   return path.length > 0 ? path.join(".") : "root";
 }
+
+function matchesQuery(
+  key: string,
+  value: string,
+  query: string,
+  expectedType?: string,
+): boolean {
+  if (!query) {
+    return true;
+  }
+
+  const haystack = `${key} ${value} ${expectedType ?? ""}`.toLowerCase();
+  return haystack.includes(query);
+}
+
+function createConstraintHeatmap(events: DevtoolEvent[]): HTMLElement {
+  const heatmap = document.createElement("div");
+  heatmap.className = "constraint-heatmap";
+
+  const counts = new Map<string, number>();
+  for (const event of events) {
+    if (event.type !== "psr:blocked") {
+      continue;
+    }
+
+    const labels =
+      readStringArray(event.meta?.violations) ??
+      readStringArray(event.meta?.constraints) ??
+      [event.type];
+
+    for (const label of labels) {
+      counts.set(label, (counts.get(label) ?? 0) + 1);
+    }
+  }
+
+  const rows = [...counts.entries()]
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, 6);
+
+  if (rows.length === 0) {
+    heatmap.append(createEmptyState("No constraint violations captured yet."));
+    return heatmap;
+  }
+
+  const max = Math.max(...rows.map((entry) => entry[1]), 1);
+  for (const [label, count] of rows) {
+    const row = document.createElement("div");
+    row.className = "constraint-heat-row";
+
+    const text = document.createElement("span");
+    text.className = "small-label";
+    text.textContent = label;
+
+    const rail = document.createElement("div");
+    rail.className = "constraint-heat-rail";
+
+    const fill = document.createElement("div");
+    fill.className = "constraint-heat-fill";
+    fill.style.width = `${Math.max(10, (count / max) * 100)}%`;
+
+    const countLabel = document.createElement("span");
+    countLabel.className = "badge badge--error";
+    countLabel.textContent = String(count);
+
+    rail.append(fill);
+    row.append(text, rail, countLabel);
+    heatmap.append(row);
+  }
+
+  return heatmap;
+}
+
+function readStringArray(value: unknown): string[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const strings = value.filter((item): item is string => typeof item === "string");
+  return strings.length > 0 ? strings : null;
+}
+
+
