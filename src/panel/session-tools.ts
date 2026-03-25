@@ -1,4 +1,15 @@
 /**
+ * @module src/panel/session-tools
+ * @memberof StroidDevtools
+ * @typedef {Record<string, unknown>} ModuleDocShape
+ * @what owns Core logic for src/panel/session-tools.
+ * @who owns Stroid Devtools maintainers.
+ * @likelyBreakpoint Runtime event normalization, UI render paths, or command routing in this module.
+ * @param {unknown} [input] Module-level JSDoc anchor for tooling consistency.
+ * @returns {void}
+ * @public
+ */
+/**
  * Shared advanced panel helpers for snapshots, performance analysis, schema validation,
  * session export, and scripted scenario playback.
  */
@@ -97,6 +108,19 @@ export interface ScenarioRunResult {
   name: string;
   executedAt: number;
   log: string[];
+  steps: ScenarioStepResult[];
+}
+
+export interface ScenarioStepChange {
+  storeId: string;
+  summary: string;
+}
+
+export interface ScenarioStepResult {
+  label: string;
+  startedAt: number;
+  finishedAt: number;
+  changes: ScenarioStepChange[];
 }
 
 export function loadSnapshots(appId: string): SnapshotRecord[] {
@@ -296,6 +320,38 @@ export function buildSchemaReport(store: StroidStoreSnapshot | null): SchemaRepo
   };
 }
 
+export function buildSchemaTypeMap(store: StroidStoreSnapshot | null): Record<string, string> {
+  if (!store) {
+    return {};
+  }
+
+  const rawSchema = store.meta?.schema;
+  if (!isSchemaNode(rawSchema)) {
+    return {};
+  }
+
+  const map: Record<string, string> = {};
+  walkSchemaTypes(rawSchema, [], map);
+  return map;
+}
+
+export function validateStateAgainstSchema(
+  schema: unknown,
+  value: unknown,
+  label = "schema",
+): SchemaReport | null {
+  if (!isSchemaNode(schema)) {
+    return null;
+  }
+
+  const issues: SchemaFieldIssue[] = [];
+  walkSchemaIssues(schema, value, [], issues);
+  return {
+    label,
+    issues,
+  };
+}
+
 export function exportSession(
   appId: string,
   timeline: DevtoolEvent[],
@@ -329,6 +385,41 @@ export function downloadSessionFile(appId: string, session: string): void {
   URL.revokeObjectURL(url);
 }
 
+export function parseSessionExport(input: string): ExportableSession {
+  const parsed = JSON.parse(input) as Partial<ExportableSession>;
+  if (
+    parsed.format !== ".stroid-session" ||
+    parsed.version !== 1 ||
+    typeof parsed.appId !== "string" ||
+    !Array.isArray(parsed.timeline)
+  ) {
+    throw new Error("Invalid .stroid-session payload.");
+  }
+
+  return {
+    format: ".stroid-session",
+    version: 1,
+    exportedAt:
+      typeof parsed.exportedAt === "number" ? parsed.exportedAt : Date.now(),
+    appId: parsed.appId,
+    timeline: parsed.timeline as DevtoolEvent[],
+    snapshots: Array.isArray(parsed.snapshots) ? (parsed.snapshots as SnapshotRecord[]) : [],
+    dependencyGraph: Array.isArray(parsed.dependencyGraph)
+      ? (parsed.dependencyGraph as DependencyEdge[])
+      : [],
+    performance:
+      parsed.performance && typeof parsed.performance === "object"
+        ? (parsed.performance as PerformanceReport)
+        : buildPerformanceReport([], []),
+    psrHistory: Array.isArray(parsed.psrHistory) ? (parsed.psrHistory as DevtoolEvent[]) : [],
+  };
+}
+
+export function importSnapshots(appId: string, snapshots: SnapshotRecord[]): SnapshotRecord[] {
+  persistSnapshots(appId, snapshots.slice(0, 20));
+  return loadSnapshots(appId);
+}
+
 export function parseScenarioDefinition(input: string): ScenarioDefinition | null {
   if (!input.trim()) {
     return null;
@@ -354,24 +445,45 @@ export function parseScenarioDefinition(input: string): ScenarioDefinition | nul
 export async function runScenarioDefinition(
   definition: ScenarioDefinition,
   sendCommand: (command: DevtoolCommand) => void,
+  readStores?: () => StroidStoreSnapshot[],
 ): Promise<ScenarioRunResult> {
   const log: string[] = [];
+  const steps: ScenarioStepResult[] = [];
 
   for (const step of definition.steps) {
+    const startedAt = Date.now();
+    const beforeStores = readStores ? cloneStores(readStores()) : [];
+
     if (step.type === "wait") {
       log.push(`${step.label ?? "wait"} ${step.ms}ms`);
       await delay(step.ms);
+      const afterStores = readStores ? cloneStores(readStores()) : [];
+      steps.push({
+        label: step.label ?? "wait",
+        startedAt,
+        finishedAt: Date.now(),
+        changes: summarizeScenarioChanges(beforeStores, afterStores),
+      });
       continue;
     }
 
     log.push(`${step.label ?? step.command.type}`);
     sendCommand(step.command);
+    await delay(32);
+    const afterStores = readStores ? cloneStores(readStores()) : [];
+    steps.push({
+      label: step.label ?? step.command.type,
+      startedAt,
+      finishedAt: Date.now(),
+      changes: summarizeScenarioChanges(beforeStores, afterStores),
+    });
   }
 
   return {
     name: definition.name,
     executedAt: Date.now(),
     log,
+    steps,
   };
 }
 
@@ -464,8 +576,62 @@ function walkSchemaIssues(
   }
 }
 
+function walkSchemaTypes(
+  schemaNode: Record<string, unknown>,
+  path: string[],
+  map: Record<string, string>,
+): void {
+  for (const [key, expected] of Object.entries(schemaNode)) {
+    const nextPath = [...path, key];
+    if (typeof expected === "string") {
+      map[nextPath.join(".")] = expected;
+      continue;
+    }
+
+    if (isSchemaNode(expected)) {
+      walkSchemaTypes(expected, nextPath, map);
+    }
+  }
+}
+
+function summarizeScenarioChanges(
+  beforeStores: StroidStoreSnapshot[],
+  afterStores: StroidStoreSnapshot[],
+): ScenarioStepChange[] {
+  const byIdBefore = new Map(beforeStores.map((store) => [store.storeId, store] as const));
+  const byIdAfter = new Map(afterStores.map((store) => [store.storeId, store] as const));
+  const ids = new Set([...byIdBefore.keys(), ...byIdAfter.keys()]);
+  const changes: ScenarioStepChange[] = [];
+
+  for (const storeId of ids) {
+    const before = byIdBefore.get(storeId);
+    const after = byIdAfter.get(storeId);
+    const result = diff(before?.currentState, after?.currentState);
+    const summary = summarizeDiff(result);
+
+    if (summary !== "no structural changes") {
+      changes.push({
+        storeId,
+        summary,
+      });
+    }
+  }
+
+  return changes.slice(0, 8);
+}
+
+function cloneStores(stores: StroidStoreSnapshot[]): StroidStoreSnapshot[] {
+  return stores.map((store) => ({
+    ...store,
+    async: store.async ? { ...store.async } : undefined,
+    meta: store.meta ? { ...store.meta } : undefined,
+  }));
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => {
     window.setTimeout(resolve, ms);
   });
 }
+
+
