@@ -50,12 +50,14 @@ export function renderTimeline(
       model.storeFilter,
       "All stores",
       model.onStoreFilterChange,
+      "stroid-filter-store",
     ),
     createSelect(
       ["all", ...model.availableEventTypes],
       model.eventTypeFilter,
       "All events",
       model.onEventTypeFilterChange,
+      "stroid-filter-event",
     ),
     createActionButton(model.paused ? "Resume" : "Pause", model.onPauseToggle),
     createActionButton("Clear", model.onClear, true),
@@ -232,9 +234,13 @@ function createSelect(
   selectedValue: string,
   allLabel: string,
   onChange: (value: string) => void,
+  id?: string,
 ): HTMLSelectElement {
   const select = document.createElement("select");
   select.className = "timeline-select";
+  if (id) {
+    select.id = id;
+  }
 
   for (const value of values) {
     const option = document.createElement("option");
