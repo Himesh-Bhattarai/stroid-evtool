@@ -27,6 +27,8 @@ import {
   buildPerformanceReport,
   buildSchemaReport,
   compareSnapshots,
+  downloadSessionFile,
+  exportSession,
   loadSnapshots,
   parseScenarioDefinition,
   runScenarioDefinition,
@@ -36,6 +38,7 @@ import { renderTimeline } from "./timeline/index.js";
 
 type ConnectionState = "connecting" | "connected" | "disconnected";
 type RightPanelView = "timeline" | "graph" | "performance";
+const STORE_FILTER_ID = "stroid-filter-store";
 const DEFAULT_SCENARIO_DRAFT = `{
   "name": "Example scenario",
   "steps": []
@@ -106,6 +109,26 @@ export function mountDevtoolsPanel(
     scenarioLog: [],
   };
 
+  const clearTimeline = (): void => {
+    state.events.clear();
+    state.diagnostics = new Map<string, StoreDiagnostics>();
+    state.droppedEventCount = 0;
+    state.storeFilter = "all";
+    state.eventTypeFilter = "all";
+    state.selectedEventId = null;
+  };
+
+  const focusStoreFilter = (): void => {
+    state.rightPanelView = "timeline";
+    render();
+    window.setTimeout(() => {
+      const filter = document.getElementById(STORE_FILTER_ID);
+      if (filter instanceof HTMLSelectElement) {
+        filter.focus();
+      }
+    }, 0);
+  };
+
   const render = (): void => {
     root.replaceChildren();
 
@@ -137,8 +160,6 @@ export function mountDevtoolsPanel(
       createMetricPill(connectionText(state.connectionState), state.connectionState),
     );
 
-    topbar.append(brand, metrics);
-
     const layout = document.createElement("main");
     layout.className = "layout-grid";
 
@@ -156,6 +177,41 @@ export function mountDevtoolsPanel(
       null;
     const snapshotComparison = compareSnapshots(leftSnapshot, rightSnapshot);
     const performanceReport = buildPerformanceReport(stores, allEvents);
+    const psrHistory = allEvents.filter((event) => event.type.startsWith("psr:"));
+
+    const topbarRight = document.createElement("div");
+    topbarRight.className = "topbar-right";
+
+    const topbarActions = document.createElement("div");
+    topbarActions.className = "topbar-actions";
+
+    const exportButton = document.createElement("button");
+    exportButton.type = "button";
+    exportButton.className = "action-button";
+    exportButton.textContent = "Export Session";
+    exportButton.addEventListener("click", () => {
+      if (!state.appId) {
+        state.scenarioStatus = "Connect to a runtime before exporting a session.";
+        render();
+        return;
+      }
+
+      const session = exportSession(
+        state.appId,
+        allEvents,
+        snapshots,
+        dependencyEdges,
+        performanceReport,
+        psrHistory,
+      );
+      downloadSessionFile(state.appId, session);
+      state.scenarioStatus = "Session exported.";
+      render();
+    });
+
+    topbarActions.append(exportButton);
+    topbarRight.append(metrics, topbarActions);
+    topbar.append(brand, topbarRight);
 
     const registryColumn = document.createElement("section");
     registryColumn.className = "panel-column";
@@ -414,12 +470,7 @@ export function mountDevtoolsPanel(
           render();
         },
         onClear() {
-          state.events.clear();
-          state.diagnostics = new Map<string, StoreDiagnostics>();
-          state.droppedEventCount = 0;
-          state.storeFilter = "all";
-          state.eventTypeFilter = "all";
-          state.selectedEventId = null;
+          clearTimeline();
           render();
         },
         onStoreFilterChange(value) {
@@ -468,6 +519,44 @@ export function mountDevtoolsPanel(
     state.selectedStoreId = typeof firstStore === "string" ? firstStore : null;
   };
 
+  const onKeyDown = (event: KeyboardEvent): void => {
+    if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) {
+      return;
+    }
+
+    if (isTextEntryTarget(event.target)) {
+      return;
+    }
+
+    const key = event.key.toLowerCase();
+    if (key === "p") {
+      event.preventDefault();
+      state.paused = !state.paused;
+      render();
+      return;
+    }
+
+    if (key === "c") {
+      event.preventDefault();
+      clearTimeline();
+      render();
+      return;
+    }
+
+    if (key === "g") {
+      event.preventDefault();
+      state.rightPanelView = state.rightPanelView === "graph" ? "timeline" : "graph";
+      render();
+      return;
+    }
+
+    if (key === "f") {
+      event.preventDefault();
+      focusStoreFilter();
+    }
+  };
+
+  window.addEventListener("keydown", onKeyDown);
   render();
 
   return {
@@ -517,6 +606,7 @@ export function mountDevtoolsPanel(
     },
 
     destroy() {
+      window.removeEventListener("keydown", onKeyDown);
       root.replaceChildren();
     },
   };
@@ -755,6 +845,19 @@ function listStoreFilters(state: PanelState): string[] {
 
 function listEventTypeFilters(state: PanelState): string[] {
   return [...new Set(state.events.getAll().map((event) => event.type))].sort();
+}
+
+function isTextEntryTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  return (
+    target.isContentEditable ||
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement
+  );
 }
 
 function syncDrafts(state: PanelState): void {
