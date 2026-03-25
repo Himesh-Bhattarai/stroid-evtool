@@ -1,6 +1,6 @@
 # Stroid Devtools
 
-Stroid Devtools is a registry-first browser DevTools extension for inspecting a live Stroid runtime. The repository now covers Phase 1, Phase 2, and the first real Phase 3 product layer from the roadmap: dependency graphing, cause tracing, jump-to-state inspection, store health, and performance sparklines.
+Stroid Devtools is a registry-first browser DevTools extension for inspecting a live Stroid runtime. The repository now covers Phase 1 through the core of Phase 4 from the roadmap, including dependency graphing, cause tracing, snapshots, scenario execution, schema checks, and a dedicated performance view.
 
 ## Current scope
 
@@ -12,6 +12,12 @@ Stroid Devtools is a registry-first browser DevTools extension for inspecting a 
 - Dependency graph view with interactive store selection and highlighted propagation neighbors
 - Store health scoring plus lightweight performance sparklines in the registry
 - Async lifecycle and alert diagnostics surfaced directly in the panel
+- Snapshot lab with save/compare/restore workflows
+- Scenario runner for scripted command sequences
+- Schema awareness and rule-based "Why is this slow?" diagnostics
+- Session export as `.stroid-session`
+- Performance tab with global and per-store metrics
+- Keyboard shortcuts: `P` pause, `C` clear, `F` focus filter, `G` graph toggle
 - Extension messaging path that relays runtime events from the page into the DevTools panel
 
 ## Build
@@ -54,10 +60,14 @@ static/extension/
 scripts/build.mjs
 ```
 
-## What is intentionally not built yet
+## Roadmap status and remaining gaps
 
-The roadmap says not to jump ahead, so these still remain for later phases:
+Roadmap compliance is tracked in `ROADMAP_COMPLIANCE.md`.
 
-- Dedicated constraint heatmaps and expanded health dashboards
-- Snapshot compare/restore flows
-- Scenario runner and session export
+Key items still missing or partial:
+
+- Multi-instance / multi-tab runtime switcher
+- Mutator trigger and runtime store creation controls
+- Force-directed graph layout and edge-hover relationship details
+- Constraint violation heatmap
+- Session import workflow
