@@ -4,6 +4,7 @@ import type { DevtoolEvent, RuntimeMode } from "../../types.js";
 export interface TimelineRenderModel {
   events: DevtoolEvent[];
   selectedStoreId: string | null;
+  selectedEventId: string | null;
   paused: boolean;
   droppedEventCount: number;
   storeFilter: string;
@@ -17,6 +18,8 @@ export interface TimelineRenderModel {
   onEventTypeFilterChange(value: string): void;
   onModeChange(mode: RuntimeMode): void;
   onReplay(speed: number): void;
+  onViewChange(view: "timeline" | "graph"): void;
+  onJumpToEvent(eventId: string, storeId?: string): void;
 }
 
 export function renderTimeline(
@@ -35,7 +38,7 @@ export function renderTimeline(
   title.textContent = "Timeline";
 
   const subtitle = document.createElement("p");
-  subtitle.textContent = "Pause, filter, clear, and inspect the live event stream.";
+  subtitle.textContent = "Pause, filter, clear, jump to a snapshot, or switch into graph mode.";
 
   titleGroup.append(title, subtitle);
 
@@ -62,16 +65,21 @@ export function renderTimeline(
 
   const modes = document.createElement("div");
   modes.className = "mode-switcher";
+  modes.append(
+    createToggleChip("Timeline", true, () => {
+      model.onViewChange("timeline");
+    }),
+    createToggleChip("Graph", false, () => {
+      model.onViewChange("graph");
+    }),
+  );
+
   for (const mode of ["debug", "trace", "freeze", "replay"] as const) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className =
-      model.mode === mode ? "mode-chip mode-chip--active" : "mode-chip";
-    button.textContent = mode;
-    button.addEventListener("click", () => {
-      model.onModeChange(mode);
-    });
-    modes.append(button);
+    modes.append(
+      createToggleChip(mode, model.mode === mode, () => {
+        model.onModeChange(mode);
+      }),
+    );
   }
 
   modes.append(
@@ -109,8 +117,12 @@ export function renderTimeline(
   }
 
   for (const event of latestEvents) {
-    const row = document.createElement("article");
-    row.className = buildRowClass(event, model.selectedStoreId);
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = buildRowClass(event, model.selectedStoreId, model.selectedEventId);
+    row.addEventListener("click", () => {
+      model.onJumpToEvent(event.id, event.storeId);
+    });
 
     const top = document.createElement("div");
     top.className = "timeline-row-top";
@@ -139,6 +151,13 @@ export function renderTimeline(
       cause.className = "timeline-cause";
       cause.textContent = `caused by ${event.causedBy}`;
       row.append(cause);
+    }
+
+    if (event.after !== undefined || event.before !== undefined) {
+      const jumpHint = document.createElement("p");
+      jumpHint.className = "timeline-jump";
+      jumpHint.textContent = "click to inspect this snapshot";
+      row.append(jumpHint);
     }
 
     list.append(row);
@@ -242,11 +261,32 @@ function createActionButton(
   return button;
 }
 
-function buildRowClass(event: DevtoolEvent, selectedStoreId: string | null): string {
+function createToggleChip(
+  label: string,
+  active: boolean,
+  onClick: () => void,
+): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = active ? "mode-chip mode-chip--active" : "mode-chip";
+  button.textContent = label;
+  button.addEventListener("click", onClick);
+  return button;
+}
+
+function buildRowClass(
+  event: DevtoolEvent,
+  selectedStoreId: string | null,
+  selectedEventId: string | null,
+): string {
   const classes = ["timeline-row"];
 
   if (event.storeId && event.storeId === selectedStoreId) {
     classes.push("timeline-row--selected");
+  }
+
+  if (event.id === selectedEventId) {
+    classes.push("timeline-row--snapshot");
   }
 
   if (event.type === "devtool:override") {
