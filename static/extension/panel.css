@@ -117,7 +117,9 @@ pre,
 .inspector-toolbar,
 .store-row-top,
 .timeline-row-top,
-.column-actions {
+.column-actions,
+.timeline-controls,
+.diff-card-top {
   display: flex;
   justify-content: space-between;
   gap: 12px;
@@ -232,11 +234,24 @@ pre,
   font-size: 12px;
 }
 
+.store-detail,
+.diff-values,
+.field-history-title,
+.control-error {
+  margin: 0;
+}
+
 .store-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 12px;
+}
+
+.store-detail {
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .action-button {
@@ -251,6 +266,11 @@ pre,
 
 .action-button:hover {
   background: rgba(111, 208, 255, 0.14);
+}
+
+.action-button--ghost {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .action-button--danger {
@@ -277,6 +297,32 @@ pre,
   margin-top: 8px;
 }
 
+.alert-stack,
+.diff-list,
+.psr-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.alert-banner {
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.alert-banner--warning {
+  background: rgba(255, 179, 102, 0.12);
+  border-color: rgba(255, 179, 102, 0.24);
+  color: var(--warning);
+}
+
+.alert-banner--danger {
+  background: rgba(255, 123, 135, 0.12);
+  border-color: rgba(255, 123, 135, 0.24);
+  color: var(--danger);
+}
+
 .inspector-section {
   display: flex;
   flex-direction: column;
@@ -300,6 +346,18 @@ pre,
   align-items: center;
 }
 
+.state-leaf {
+  width: 100%;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.state-leaf--selected {
+  border-color: rgba(111, 208, 255, 0.28);
+  background: rgba(111, 208, 255, 0.1);
+}
+
 .state-summary {
   cursor: pointer;
   list-style: none;
@@ -318,6 +376,55 @@ pre,
   word-break: break-word;
 }
 
+.diff-card {
+  padding: 12px;
+}
+
+.diff-path {
+  color: var(--accent);
+}
+
+.history-rail,
+.badge-row,
+.mode-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.history-point,
+.mode-chip,
+.timeline-select,
+.state-editor {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+}
+
+.history-point {
+  padding: 10px 12px;
+}
+
+.mode-chip {
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.mode-chip--active {
+  border-color: rgba(111, 208, 255, 0.3);
+  background: rgba(111, 208, 255, 0.12);
+}
+
+.timeline-controls {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.timeline-select {
+  padding: 8px 12px;
+}
+
 .timeline-row {
   padding: 14px;
 }
@@ -326,9 +433,32 @@ pre,
   border-color: rgba(111, 208, 255, 0.3);
 }
 
+.timeline-row--changed {
+  background: rgba(111, 208, 255, 0.06);
+}
+
+.timeline-row--override {
+  border-color: rgba(255, 179, 102, 0.24);
+}
+
+.timeline-row--blocked {
+  border-color: rgba(255, 123, 135, 0.3);
+}
+
 .timeline-summary {
   margin-top: 10px;
   color: #d9e6f2;
+}
+
+.state-editor {
+  min-height: 180px;
+  width: 100%;
+  padding: 14px;
+  resize: vertical;
+}
+
+.control-error {
+  color: var(--danger);
 }
 
 .empty-state,
