@@ -21,11 +21,23 @@ function isDevtoolCommand(value: unknown): value is DevtoolCommand {
 
   switch (record.type) {
     case "panel:handshake":
+    case "stores:reset-all":
       return true;
+    case "devtools:set-mode":
+      return (
+        record.mode === "debug" ||
+        record.mode === "trace" ||
+        record.mode === "freeze" ||
+        record.mode === "replay"
+      );
+    case "devtools:replay":
+      return typeof record.speed === "number";
     case "store:reset":
     case "store:delete":
     case "store:refetch":
       return typeof record.storeId === "string";
+    case "store:edit":
+      return typeof record.storeId === "string" && "state" in record;
     default:
       return false;
   }
