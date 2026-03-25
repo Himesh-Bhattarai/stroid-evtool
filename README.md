@@ -14,10 +14,14 @@ Stroid Devtools is a registry-first browser DevTools extension for inspecting a 
 - Async lifecycle and alert diagnostics surfaced directly in the panel
 - Snapshot lab with save/compare/restore workflows
 - Scenario runner for scripted command sequences
+- Scenario step-by-step diff summaries after each scripted action
 - Schema awareness and rule-based "Why is this slow?" diagnostics
 - Session export as `.stroid-session`
+- Session import from `.stroid-session`
 - Performance tab with global and per-store metrics
 - Keyboard shortcuts: `P` pause, `C` clear, `F` focus filter, `G` graph toggle
+- Multi-target switcher for multiple app instances / tabs
+- Control panel mutator trigger and runtime store creation
 - Extension messaging path that relays runtime events from the page into the DevTools panel
 
 ## Build
@@ -60,14 +64,6 @@ static/extension/
 scripts/build.mjs
 ```
 
-## Roadmap status and remaining gaps
+## Roadmap status
 
-Roadmap compliance is tracked in `ROADMAP_COMPLIANCE.md`.
-
-Key items still missing or partial:
-
-- Multi-instance / multi-tab runtime switcher
-- Mutator trigger and runtime store creation controls
-- Force-directed graph layout and edge-hover relationship details
-- Constraint violation heatmap
-- Session import workflow
+Roadmap compliance is tracked in `ROADMAP_COMPLIANCE.md` and is currently marked complete for the audited contract.
