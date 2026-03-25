@@ -6,9 +6,9 @@ Source of truth: `ROADMAP.md`
 ## Status Summary
 
 - Phase 1: **Complete**
-- Phase 2: **Mostly complete** (some control-panel items remain)
-- Phase 3: **Mostly complete** (graph rendering details remain)
-- Phase 4: **Partially complete** (multi-instance still missing)
+- Phase 2: **Complete**
+- Phase 3: **Complete**
+- Phase 4: **Complete**
 
 ## Line-By-Line Implementation Status
 
@@ -30,7 +30,7 @@ Source of truth: `ROADMAP.md`
 | Store Registry columns/actions | Done | `src/panel/registry/index.ts` |
 | Store Inspector current/previous/diff/metadata | Done | `src/panel/inspector/index.ts` |
 | Inspector expand/collapse tree nodes | Done | `src/panel/inspector/index.ts` (`<details>`) |
-| Inspector search inside state | Missing | Not implemented in inspector UI |
+| Inspector search inside state | Done | `src/panel/inspector/index.ts` |
 | Copy current snapshot | Done | `src/panel/inspector/index.ts` (`Copy JSON`) |
 | Timeline rows + store/event context | Done | `src/panel/timeline/index.ts` |
 | Timeline jump-to-state (inspector-only snapshot) | Done | `src/panel/timeline/index.ts`, `src/panel/index.tsx` |
@@ -39,11 +39,11 @@ Source of truth: `ROADMAP.md`
 | Async lifecycle tracking | Done | `src/panel/index.tsx`, `src/panel/inspector/index.ts` |
 | Subscription debugging + sparkline | Done | `src/panel/analytics.ts`, `src/panel/registry/index.ts`, `src/panel/inspector/index.ts` |
 | Control panel: edit/reset/delete/refetch/reset-all | Done | `src/panel/inspector/index.ts`, `src/panel/registry/index.ts`, `src/bridge/index.ts` |
-| Control panel: trigger mutator | Missing | No command/type/UI for mutator invocation |
-| Control panel: create store | Missing | No command/type/UI for runtime store creation |
+| Control panel: trigger mutator | Done | `src/types.ts`, `src/bridge/index.ts`, `src/panel/inspector/index.ts` |
+| Control panel: create store | Done | `src/types.ts`, `src/bridge/index.ts`, `src/panel/registry/index.ts` |
 | Override actions flagged as `devtool:override` | Done | `src/bridge/index.ts`, `src/panel/timeline/index.ts` |
 | PSR preview/commit/blocked integration | Done | `src/types.ts`, `src/panel/analytics.ts`, `src/panel/insights.ts`, `src/panel/inspector/index.ts` |
-| Unsafe PSR commit in orange | Partial | `psr:blocked` and override styles exist; explicit unsafe commit variant not implemented |
+| Unsafe PSR commit in orange | Done | `src/panel/timeline/index.ts`, `static/extension/panel.css` |
 | Snapshot save/compare/restore | Done | `src/panel/session-tools.ts`, `src/panel/inspector/index.ts`, `src/panel/index.tsx` |
 | Performance metrics (per-store/global) + tab | Done | `src/panel/session-tools.ts`, `src/panel/performance/index.ts` |
 
@@ -61,9 +61,9 @@ Source of truth: `ROADMAP.md`
 | Phase checklist | Status | Notes |
 |---|---|---|
 | Phase 1 (MVP) | Done | Bridge, event type, registry, inspector, timeline, runtime integration all present |
-| Phase 2 (Useful) | Partial | Core done; trigger mutator/create store remain |
-| Phase 3 (Powerful) | Partial | Core done; graph is interactive but not force-directed/edge-hover-flash feature set |
-| Phase 4 (Elite) | Partial | Scenario runner, slow analysis, schema, snapshots, performance tab, session export done; multi-instance/multi-tab missing |
+| Phase 2 (Useful) | Done | Includes control panel mutator and create-store actions |
+| Phase 3 (Powerful) | Done | Includes force-style graph, edge hover details, and propagation flash |
+| Phase 4 (Elite) | Done | Includes scenario step diffs, schema checks, session import/export, and multi-target switching |
 
 ### 5.5 Additional Features
 
@@ -71,24 +71,18 @@ Source of truth: `ROADMAP.md`
 |---|---|---|
 | Runtime modes: Debug/Trace/Freeze/Replay | Done | Mode commands + UI toggles present |
 | Field-level history | Done | Inspector field history section present |
-| Smart alerts (over-subscription/thrashing/loop) | Partial | Over-subscription + thrashing present; explicit loop-cycle detector not found |
+| Smart alerts (over-subscription/thrashing/loop) | Done | Loop-cycle detection added in panel runtime analysis |
 | Derived trace | Done | Inputs/change flags/cost/count in inspector |
 | Live constraints panel | Done | Constraints section with PSR events |
-| Constraint violation heatmap | Missing | Not implemented |
+| Constraint violation heatmap | Done | `src/panel/inspector/index.ts`, `static/extension/panel.css` |
 | Store health system | Done | Score + reasons + registry badges/sparklines |
-| Scenario runner with per-step snapshot+diff UI | Partial | Scenario execution/log exists; per-step snapshot+diff visualization not implemented |
+| Scenario runner with per-step snapshot+diff UI | Done | `src/panel/session-tools.ts`, `src/panel/inspector/index.ts` |
 | Why-is-this-slow diagnosis | Done | Rule-based analysis section present |
-| State schema awareness (typed labels + violation checks) | Partial | Schema mismatch checks present; typed field labels and write-time validation UI are limited |
+| State schema awareness (typed labels + violation checks) | Done | Schema-type hints in inspector tree + write-time validation before edit apply |
 | Session export share format | Done | `.stroid-session` export helper + UI button |
-| Session import | Missing | No import workflow |
-| Multi-instance / multi-tab switcher | Missing | Single active app context in panel |
+| Session import | Done | `src/panel/index.tsx`, `src/panel/session-tools.ts` |
+| Multi-instance / multi-tab switcher | Done | `src/extension/service-worker.ts`, `src/panel/index.tsx` |
 
 ## What Remains To Reach Full Roadmap Compliance
 
-1. Add mutator trigger and runtime store creation controls.
-2. Upgrade graph to force-directed layout and edge-hover relationship details.
-3. Add propagation-path flash on update.
-4. Add multi-instance/multi-tab app switcher.
-5. Add loop-cycle detection and constraints violation heatmap.
-6. Add scenario step-by-step snapshot+diff visualization.
-7. Add session import workflow.
+No outstanding roadmap items from the current contract audit.
