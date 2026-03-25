@@ -1,5 +1,13 @@
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import {
+  copyFileSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { join } from "node:path";
 
 const root = process.cwd();
@@ -34,4 +42,33 @@ if (existsSync(staticDir)) {
 
 if (existsSync(readmePath)) {
   cpSync(readmePath, join(distDir, "README.md"));
+}
+
+createJsAliasesForJsx(distDir);
+
+function createJsAliasesForJsx(rootDir) {
+  const queue = [rootDir];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current) {
+      continue;
+    }
+
+    for (const entry of readdirSync(current)) {
+      const fullPath = join(current, entry);
+      const stats = statSync(fullPath);
+      if (stats.isDirectory()) {
+        queue.push(fullPath);
+        continue;
+      }
+
+      if (!fullPath.endsWith(".jsx")) {
+        continue;
+      }
+
+      const jsPath = fullPath.slice(0, -1);
+      copyFileSync(fullPath, jsPath);
+    }
+  }
 }
