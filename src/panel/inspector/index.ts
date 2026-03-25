@@ -224,7 +224,7 @@ function renderValueTree(
     : Object.entries(value);
 
   if (entries.length === 0) {
-    details.append(renderLeaf("empty", Array.isArray(value) ? "[]" : "{}"));
+    details.append(renderLeaf("empty", Array.isArray(value) ? "[]" : "{}", options));
     return details;
   }
 
