@@ -14,7 +14,7 @@ Instead of asking "what happened?", you can see:
 
 ---
 
-## Quick Demo (30 seconds)
+## Quick Demo (30 seconds)[will replace by short video]
 
 1. Open DevTools -> Stroid panel
 2. Select a store
@@ -326,7 +326,6 @@ scripts/build.mjs
 
 ## Roadmap And Governance
 
-- Product build contract: `ROADMAP.md`
 - Commit status taxonomy: `STATUS.md`
 - Contribution guide: `CONTRIBUTING.md`
 - Code of conduct: `CODE_OF_CONDUCT.md`
