@@ -1,3 +1,14 @@
+/**
+ * @module src/bridge/normalizer
+ * @memberof StroidDevtools
+ * @typedef {Record<string, unknown>} ModuleDocShape
+ * @what owns Core logic for src/bridge/normalizer.
+ * @who owns Stroid Devtools maintainers.
+ * @likelyBreakpoint Runtime event normalization, UI render paths, or command routing in this module.
+ * @param {unknown} [input] Module-level JSDoc anchor for tooling consistency.
+ * @returns {void}
+ * @public
+ */
 import {
   DEVTOOL_EVENT_TYPES,
   STORE_STATUSES,
@@ -316,3 +327,5 @@ export function snapshotStore(
   const registrySnapshot = snapshotRegistry(registry).find((store) => store.storeId === storeId);
   return registrySnapshot ?? buildStoreFallback(storeId, event);
 }
+
+
