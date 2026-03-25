@@ -2,7 +2,9 @@
 
 Stroid DevTools is a runtime debugger for state systems.
 
-It gives you one control room to inspect stores, trace why state changed, visualize dependencies, replay and snapshot runtime behavior, and control the runtime safely from a DevTools panel.
+It gives you a single control room to inspect stores, trace why state changed, visualize dependencies, replay and snapshot runtime behavior, and control the runtime safely from a DevTools panel.
+
+Built for complex state systems where logs and basic devtools are not enough.
 
 Instead of asking "what happened?", you can see:
 
@@ -10,17 +12,31 @@ Instead of asking "what happened?", you can see:
 - why it changed
 - what it affected
 
-## Quick Demo (30 Seconds)
+---
 
-1. Open the **Stroid Devtool** panel in browser DevTools.
-2. Select a store from the registry.
-3. Watch live updates in the timeline.
-4. Click an event row to inspect diff + cause trace.
-5. Run a scenario and compare snapshots to reproduce a bug.
+## Quick Demo (30 seconds)
 
-Now debugging is visual and traceable instead of guesswork.
+1. Open DevTools -> Stroid panel
+2. Select a store
+3. Watch updates in timeline
+4. Click event -> see diff + cause trace
+5. Run scenario -> reproduce bug
+
+Debugging becomes visual, traceable, and reproducible.
+
+---
+
+## DevTools Connection
+
+Stroid DevTools automatically connects when the extension is installed (development mode).
+
+Manual bridge setup is available for advanced control or production environments.
+
+---
 
 ## Install And Run (2-Minute Quick Start)
+
+Get Stroid DevTools running locally in under 2 minutes.
 
 ### 1) Install dependencies
 
@@ -44,6 +60,8 @@ Build output is written to `dist/`.
 4. Select the `dist/` folder
 5. Open your app tab, then open DevTools
 6. Open the **Stroid Devtool** panel
+
+---
 
 ## Daily Workflow
 
@@ -77,6 +95,8 @@ Build output is written to `dist/`.
 - Compare snapshots to verify the fix.
 - Export a `.stroid-session` file to share with teammates.
 
+---
+
 ## What Problems It Solves
 
 - Which store changed, and when?
@@ -89,6 +109,8 @@ Build output is written to `dist/`.
 - Can I capture this moment and compare it later?
 - Can I replay a bug instead of reproducing it manually?
 
+---
+
 ## Why It Matters
 
 - Eliminates blind debugging
@@ -97,6 +119,8 @@ Build output is written to `dist/`.
 - Turns runtime behavior into something explainable
 - Enables reproducible debugging with snapshots and replay
 
+---
+
 ## Core Capabilities
 
 - Inspect stores and state changes in real time
@@ -104,6 +128,8 @@ Build output is written to `dist/`.
 - Visualize dependency graph propagation
 - Replay and snapshot runtime behavior
 - Diagnose performance and schema issues
+
+---
 
 ## Advanced Features
 
@@ -138,6 +164,8 @@ Build output is written to `dist/`.
 - Session export/import
 - Multi-target switching across tabs/apps
 
+---
+
 ## DevTools Philosophy
 
 The system is built around three layers:
@@ -147,6 +175,8 @@ The system is built around three layers:
 - Control: change behavior and reproduce issues
 
 That design turns the panel from a passive viewer into an active debugging platform.
+
+---
 
 ## Architecture Overview
 
@@ -179,6 +209,8 @@ Runtime bridge layer. It:
 - sends/receives bridge envelopes
 - supports `postMessage` and `BroadcastChannel`
 - routes panel commands back to the runtime
+
+---
 
 ## Runtime Integration
 
@@ -218,6 +250,8 @@ Alternative command path:
 
 - `dispatchDevtoolsCommand(command)` (single command dispatcher)
 
+---
+
 ## Scenario Runner Format
 
 Use JSON in the scenario editor:
@@ -244,12 +278,16 @@ Use JSON in the scenario editor:
 }
 ```
 
+---
+
 ## Keyboard Shortcuts
 
 - `P`: pause/resume timeline recording
 - `C`: clear timeline
 - `F`: focus store filter
 - `G`: toggle timeline/graph view
+
+---
 
 ## Testing
 
@@ -267,6 +305,8 @@ npm run test:unit
 
 Current suite includes feature tests, edge-case tests, helper contract tests, fuzzy/randomized diff tests, and smoke tests for public API.
 
+---
+
 ## Project Structure
 
 ```text
@@ -282,6 +322,8 @@ tests/
 scripts/build.mjs
 ```
 
+---
+
 ## Roadmap And Governance
 
 - Product build contract: `ROADMAP.md`
@@ -291,6 +333,8 @@ scripts/build.mjs
 - Security policy: `SECURITY.md`
 - License: `LICENSE` (MIT)
 - Release history: `CHANGELOG.md`
+
+---
 
 ## One-line Summary
 
