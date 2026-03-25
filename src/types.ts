@@ -1,3 +1,14 @@
+/**
+ * @module src/types
+ * @memberof StroidDevtools
+ * @typedef {Record<string, unknown>} ModuleDocShape
+ * @what owns Core logic for src/types.
+ * @who owns Stroid Devtools maintainers.
+ * @likelyBreakpoint Runtime event normalization, UI render paths, or command routing in this module.
+ * @param {unknown} [input] Module-level JSDoc anchor for tooling consistency.
+ * @returns {void}
+ * @public
+ */
 export const STROID_DEVTOOLS_NAMESPACE = "stroid:devtools";
 export const DEFAULT_CHANNEL_KEY = "stroid-devtools";
 
@@ -90,6 +101,18 @@ export type DevtoolCommand =
       storeId: string;
     }
   | {
+      type: "store:trigger-mutator";
+      storeId: string;
+      mutator: string;
+      args?: unknown[];
+    }
+  | {
+      type: "store:create";
+      storeId: string;
+      storeType?: StoreType;
+      initialState?: unknown;
+    }
+  | {
       type: "stores:reset-all";
     }
   | {
@@ -153,6 +176,8 @@ export interface StroidRegistryLike {
   editStore?(storeId: string, state: unknown): void;
   deleteStore?(storeId: string): void;
   refetchStore?(storeId: string): void;
+  triggerStoreMutator?(storeId: string, mutator: string, args?: unknown[]): void;
+  createStore?(storeId: string, options?: { storeType?: StoreType; initialState?: unknown }): void;
   resetAllStores?(): void;
   setDevtoolsMode?(mode: RuntimeMode): void;
   replayEvents?(speed: number): void;
@@ -171,3 +196,5 @@ export interface StroidDevtoolsBridge {
   subscribe(listener: (envelope: BridgeEnvelope) => void): Unsubscribe;
   destroy(): void;
 }
+
+
