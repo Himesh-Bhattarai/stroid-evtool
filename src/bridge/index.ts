@@ -39,11 +39,23 @@ function routeCommand(registry: StroidRegistryLike, command: DevtoolCommand): vo
     case "store:reset":
       registry.resetStore?.(command.storeId);
       return;
+    case "store:edit":
+      registry.editStore?.(command.storeId, command.state);
+      return;
     case "store:delete":
       registry.deleteStore?.(command.storeId);
       return;
     case "store:refetch":
       registry.refetchStore?.(command.storeId);
+      return;
+    case "stores:reset-all":
+      registry.resetAllStores?.();
+      return;
+    case "devtools:set-mode":
+      registry.setDevtoolsMode?.(command.mode);
+      return;
+    case "devtools:replay":
+      registry.replayEvents?.(command.speed);
       return;
   }
 }
