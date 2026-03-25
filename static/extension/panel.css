@@ -386,7 +386,9 @@ pre,
 
 .history-rail,
 .badge-row,
-.mode-switcher {
+.mode-switcher,
+.view-toggle,
+.cause-list {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
@@ -426,11 +428,20 @@ pre,
 }
 
 .timeline-row {
+  width: 100%;
   padding: 14px;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .timeline-row--selected {
   border-color: rgba(111, 208, 255, 0.3);
+}
+
+.timeline-row--snapshot {
+  border-color: rgba(255, 179, 102, 0.3);
+  background: rgba(255, 179, 102, 0.08);
 }
 
 .timeline-row--changed {
@@ -450,6 +461,14 @@ pre,
   color: #d9e6f2;
 }
 
+.timeline-jump {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
 .state-editor {
   min-height: 180px;
   width: 100%;
@@ -459,6 +478,79 @@ pre,
 
 .control-error {
   color: var(--danger);
+}
+
+.sparkline {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 36px;
+  margin-top: 12px;
+}
+
+.sparkline-bar {
+  flex: 1;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(111, 208, 255, 0.95), rgba(111, 208, 255, 0.2));
+}
+
+.cause-step {
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(111, 208, 255, 0.16);
+  background: rgba(111, 208, 255, 0.06);
+}
+
+.graph-canvas {
+  width: 100%;
+  min-height: 420px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    radial-gradient(circle at center, rgba(111, 208, 255, 0.06), transparent 55%),
+    rgba(255, 255, 255, 0.03);
+}
+
+.graph-edge {
+  stroke-width: 2;
+  stroke: rgba(159, 179, 200, 0.26);
+}
+
+.graph-edge--dependency {
+  stroke-dasharray: 6 6;
+}
+
+.graph-edge--causal {
+  stroke: rgba(111, 208, 255, 0.32);
+}
+
+.graph-edge--highlighted {
+  stroke: rgba(255, 179, 102, 0.8);
+  stroke-width: 3;
+}
+
+.graph-node {
+  cursor: pointer;
+}
+
+.graph-node circle {
+  fill: rgba(11, 24, 36, 0.92);
+  stroke: rgba(159, 179, 200, 0.35);
+  stroke-width: 2;
+}
+
+.graph-node text {
+  fill: var(--text);
+  font-size: 13px;
+}
+
+.graph-node--related circle {
+  stroke: rgba(111, 208, 255, 0.5);
+}
+
+.graph-node--selected circle {
+  stroke: rgba(255, 179, 102, 0.9);
+  fill: rgba(255, 179, 102, 0.12);
 }
 
 .empty-state,
