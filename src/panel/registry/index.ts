@@ -1,6 +1,17 @@
+/**
+ * @module src/panel/registry/index
+ * @memberof StroidDevtools
+ * @typedef {Record<string, unknown>} ModuleDocShape
+ * @what owns Core logic for src/panel/registry/index.
+ * @who owns Stroid Devtools maintainers.
+ * @likelyBreakpoint Runtime event normalization, UI render paths, or command routing in this module.
+ * @param {unknown} [input] Module-level JSDoc anchor for tooling consistency.
+ * @returns {void}
+ * @public
+ */
 import type { StoreDiagnostics } from "../analytics.js";
 import { computeStoreHealth } from "../insights.js";
-import type { DevtoolCommand, StroidStoreSnapshot } from "../../types.js";
+import type { DevtoolCommand, StoreType, StroidStoreSnapshot } from "../../types.js";
 
 export interface RegistryRenderModel {
   stores: StroidStoreSnapshot[];
@@ -8,11 +19,16 @@ export interface RegistryRenderModel {
   connectionState: "connecting" | "connected" | "disconnected";
   appId: string | null;
   diagnosticsByStore: Map<string, StoreDiagnostics>;
+  createStoreIdDraft: string;
+  createStoreTypeDraft: StoreType;
 }
 
 export interface RegistryHandlers {
   onSelectStore(storeId: string): void;
   onCommand(command: DevtoolCommand): void;
+  onCreateStoreIdChange(value: string): void;
+  onCreateStoreTypeChange(value: StoreType): void;
+  onCreateStore(): void;
 }
 
 export function renderStoreRegistry(
@@ -144,7 +160,36 @@ export function renderStoreRegistry(
     footer.append(createGhostText("Select a store to unlock runtime controls."));
   }
 
-  container.append(header, list, footer);
+  const createControls = document.createElement("div");
+  createControls.className = "timeline-controls";
+
+  const storeIdInput = document.createElement("input");
+  storeIdInput.className = "timeline-select";
+  storeIdInput.placeholder = "new store id";
+  storeIdInput.value = model.createStoreIdDraft;
+  storeIdInput.addEventListener("input", () => {
+    handlers.onCreateStoreIdChange(storeIdInput.value);
+  });
+
+  const typeSelect = document.createElement("select");
+  typeSelect.className = "timeline-select";
+  for (const type of ["sync", "async", "derived", "unknown"] as const) {
+    const option = document.createElement("option");
+    option.value = type;
+    option.textContent = type;
+    option.selected = type === model.createStoreTypeDraft;
+    typeSelect.append(option);
+  }
+
+  typeSelect.addEventListener("change", () => {
+    handlers.onCreateStoreTypeChange(typeSelect.value as StoreType);
+  });
+
+  const createButton = createActionButton("Create Store", handlers.onCreateStore);
+
+  createControls.append(storeIdInput, typeSelect, createButton);
+
+  container.append(header, list, footer, createControls);
 }
 
 function createActionButton(label: string, onClick: () => void, danger = false): HTMLButtonElement {
@@ -248,3 +293,5 @@ function healthTone(label: "healthy" | "watch" | "unstable"): string {
       return "error";
   }
 }
+
+
