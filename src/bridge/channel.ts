@@ -1,3 +1,14 @@
+/**
+ * @module src/bridge/channel
+ * @memberof StroidDevtools
+ * @typedef {Record<string, unknown>} ModuleDocShape
+ * @what owns Core logic for src/bridge/channel.
+ * @who owns Stroid Devtools maintainers.
+ * @likelyBreakpoint Runtime event normalization, UI render paths, or command routing in this module.
+ * @param {unknown} [input] Module-level JSDoc anchor for tooling consistency.
+ * @returns {void}
+ * @public
+ */
 import {
   DEFAULT_CHANNEL_KEY,
   STROID_DEVTOOLS_NAMESPACE,
@@ -129,3 +140,5 @@ export function createBridgeChannel(
     },
   };
 }
+
+
