@@ -28,6 +28,7 @@ export type DevtoolEventType = (typeof DEVTOOL_EVENT_TYPES)[number];
 export type StoreType = (typeof STORE_TYPES)[number];
 export type StoreStatus = (typeof STORE_STATUSES)[number];
 export type BridgeTransportMode = "window" | "broadcast" | "both";
+export type RuntimeMode = "debug" | "trace" | "freeze" | "replay";
 export type Unsubscribe = () => void;
 
 export interface DevtoolEvent {
@@ -53,6 +54,7 @@ export interface StoreAsyncSnapshot {
   error?: string;
   lastStartedAt?: number;
   lastFinishedAt?: number;
+  lastOutcome?: "success" | "error";
 }
 
 export interface StroidStoreSnapshot {
@@ -75,12 +77,28 @@ export type DevtoolCommand =
       storeId: string;
     }
   | {
+      type: "store:edit";
+      storeId: string;
+      state: unknown;
+    }
+  | {
       type: "store:delete";
       storeId: string;
     }
   | {
       type: "store:refetch";
       storeId: string;
+    }
+  | {
+      type: "stores:reset-all";
+    }
+  | {
+      type: "devtools:set-mode";
+      mode: RuntimeMode;
+    }
+  | {
+      type: "devtools:replay";
+      speed: number;
     }
   | {
       type: "panel:handshake";
@@ -132,8 +150,12 @@ export interface StroidRegistryLike {
   getStores?(): Iterable<unknown> | Record<string, unknown> | unknown[];
   getStoreSnapshot?(storeId: string): unknown;
   resetStore?(storeId: string): void;
+  editStore?(storeId: string, state: unknown): void;
   deleteStore?(storeId: string): void;
   refetchStore?(storeId: string): void;
+  resetAllStores?(): void;
+  setDevtoolsMode?(mode: RuntimeMode): void;
+  replayEvents?(speed: number): void;
   dispatchDevtoolsCommand?(command: DevtoolCommand): void;
 }
 
