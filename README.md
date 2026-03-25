@@ -1,14 +1,15 @@
 # Stroid Devtools
 
-Stroid Devtools is a registry-first browser DevTools extension for inspecting a live Stroid runtime. This repository now ships the strict Phase 1 MVP from the roadmap: the bridge contract, the extension shell, the store registry, the store inspector, and the basic timeline.
+Stroid Devtools is a registry-first browser DevTools extension for inspecting a live Stroid runtime. The repository now covers Phase 1 and the first real Phase 2 debugging layer from the roadmap: structural diffing, async and subscription diagnostics, timeline controls, runtime modes, and direct state editing hooks.
 
-## Phase 1 scope
+## Current scope
 
 - Bridge architecture with an event emitter plus `postMessage` / `BroadcastChannel` transport
 - Shared `DevtoolEvent` contract including `causedBy`, `depth`, and `performance`
-- Store registry with reset, delete, and async re-fetch actions
-- Store inspector with current state, previous state, and metadata
-- Timeline with timestamps, store IDs, event types, and mutation summaries
+- Store registry with reset, delete, reset-all, and async re-fetch actions
+- Store inspector with current state, previous state, structural diff, field history, subscription debugging, PSR activity, and edit-state controls
+- Timeline with timestamps, store IDs, diff summaries, pause/filter/clear controls, and runtime mode toggles
+- Async lifecycle and alert diagnostics surfaced directly in the panel
 - Extension messaging path that relays runtime events from the page into the DevTools panel
 
 ## Build
@@ -53,11 +54,9 @@ scripts/build.mjs
 
 ## What is intentionally not built yet
 
-The roadmap says not to jump ahead, so these stay out of Phase 1 for now:
+The roadmap says not to jump ahead, so these still remain for later phases:
 
-- Structural diff engine
-- Pause / filter / clear timeline controls
-- Subscription debugging dashboard
-- Full control panel editing
-- PSR panels
 - Dependency graph and cause-trace visualizer
+- Live constraints and store health panels
+- Snapshot compare/restore flows
+- Scenario runner and session export
