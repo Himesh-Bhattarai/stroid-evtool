@@ -59,6 +59,8 @@ import { renderTimeline } from "./timeline/index.js";
 type ConnectionState = "connecting" | "connected" | "disconnected";
 type RightPanelView = "timeline" | "graph" | "performance";
 const STORE_FILTER_ID = "stroid-filter-store";
+const DEMO_TARGET_TAB_ID = -4242;
+const DEMO_TARGET_APP_ID = "stroid-demo";
 const DEFAULT_SCENARIO_DRAFT = `{
   "name": "Example scenario",
   "steps": []
@@ -161,6 +163,16 @@ export function mountDevtoolsPanel(
     scenarioLog: [],
     scenarioSteps: [],
   };
+  let demoIntervalId: number | null = null;
+  const demoRuntime = {
+    tick: 0,
+    cartTotal: 18,
+    cartItemCount: 2,
+    inventoryStock: 30,
+    inventoryStatus: "success" as StoreStatus,
+    inventoryOutcome: "success" as "success" | "error",
+    lastAsyncDuration: 0,
+  };
 
   const commandRoute = (): { tabId?: number; appId?: string } => {
     return {
@@ -201,6 +213,64 @@ export function mountDevtoolsPanel(
     state.storeFilter = "all";
     state.eventTypeFilter = "all";
     state.selectedEventId = null;
+  };
+
+  const buildDemoStores = (): StroidStoreSnapshot[] => {
+    const summaryTotal = roundCurrency(demoRuntime.cartTotal * 1.13);
+    return [
+      {
+        storeId: "cart",
+        storeType: "sync",
+        status: "success",
+        subscriberCount: 4,
+        currentState: {
+          total: demoRuntime.cartTotal,
+          itemCount: demoRuntime.cartItemCount,
+        },
+        meta: {
+          schemaName: "cart schema",
+          schema: {
+            total: "number",
+            itemCount: "number",
+          },
+        },
+        updatedAt: Date.now(),
+      },
+      {
+        storeId: "cartSummary",
+        storeType: "derived",
+        status: "success",
+        subscriberCount: 2,
+        currentState: {
+          grandTotal: summaryTotal,
+        },
+        meta: {
+          expression: "cartSummary = compute(cart)",
+          dependencies: ["cart"],
+        },
+        updatedAt: Date.now(),
+      },
+      {
+        storeId: "inventory",
+        storeType: "async",
+        status: demoRuntime.inventoryStatus,
+        subscriberCount: 1,
+        currentState: {
+          stock: demoRuntime.inventoryStock,
+        },
+        async: {
+          duration: demoRuntime.lastAsyncDuration,
+          triggerReason: demoRuntime.tick % 2 === 0 ? "interval" : "manual",
+          cacheSource: demoRuntime.tick % 2 === 0 ? "network" : "cache",
+          lastOutcome: demoRuntime.inventoryOutcome,
+          error:
+            demoRuntime.inventoryOutcome === "error"
+              ? "Inventory fetch timeout (demo)"
+              : undefined,
+        },
+        updatedAt: Date.now(),
+      },
+    ];
   };
 
   const focusStoreFilter = (): void => {
@@ -258,6 +328,15 @@ export function mountDevtoolsPanel(
       );
       if (!next) {
         return;
+      }
+
+      if (next.tabId === DEMO_TARGET_TAB_ID && next.appId === DEMO_TARGET_APP_ID) {
+        if (demoIntervalId === null) {
+          startQuickDemo();
+        }
+        return;
+      } else if (demoIntervalId !== null) {
+        stopQuickDemo();
       }
 
       state.selectedTarget = next;
@@ -365,7 +444,22 @@ export function mountDevtoolsPanel(
       render();
     });
 
-    topbarActions.append(importButton, exportButton, importInput);
+    const quickDemoButton = document.createElement("button");
+    quickDemoButton.type = "button";
+    quickDemoButton.className =
+      demoIntervalId === null ? "action-button action-button--ghost" : "action-button";
+    quickDemoButton.textContent = demoIntervalId === null ? "Quick Demo" : "Stop Demo";
+    quickDemoButton.addEventListener("click", () => {
+      if (demoIntervalId === null) {
+        startQuickDemo();
+        return;
+      }
+
+      stopQuickDemo("Quick demo stopped.");
+      render();
+    });
+
+    topbarActions.append(quickDemoButton, importButton, exportButton, importInput);
     topbarRight.append(targetControls, metrics, topbarActions);
     topbar.append(brand, topbarRight);
 
@@ -807,6 +901,343 @@ export function mountDevtoolsPanel(
     state.selectedStoreId = typeof firstStore === "string" ? firstStore : null;
   };
 
+  const applyIncomingEnvelope = (
+    envelope: BridgeEnvelope,
+    sourceTabId: number | null,
+    shouldRender = true,
+  ): void => {
+    const incomingTarget: PanelTarget = {
+      tabId: sourceTabId ?? -1,
+      appId: envelope.appId ?? "stroid-runtime",
+      lastSeen: Date.now(),
+    };
+
+    upsertTarget(state, incomingTarget);
+
+    if (!state.selectedTarget) {
+      state.selectedTarget = incomingTarget;
+      state.appId = incomingTarget.appId;
+    }
+
+    if (
+      state.selectedTarget &&
+      (incomingTarget.tabId !== state.selectedTarget.tabId ||
+        incomingTarget.appId !== state.selectedTarget.appId)
+    ) {
+      if (shouldRender) {
+        render();
+      }
+      return;
+    }
+
+    state.appId = incomingTarget.appId;
+
+    if (envelope.type !== "bridge:command") {
+      state.connectionState = "connected";
+    }
+
+    switch (envelope.type) {
+      case "bridge:snapshot":
+        state.stores = new Map(
+          envelope.stores.map((store) => [store.storeId, store] as const),
+        );
+        syncDrafts(state);
+        ensureSelection();
+        break;
+      case "bridge:store-patch":
+        state.stores.set(
+          envelope.store.storeId,
+          mergeStorePatch(state.stores.get(envelope.store.storeId), envelope.store),
+        );
+        ensureDraft(state, envelope.store.storeId);
+        ensureSelection();
+        break;
+      case "bridge:event":
+        if (state.paused) {
+          state.droppedEventCount += 1;
+          applyEvent(state, envelope.event, false);
+        } else {
+          state.events.push(envelope.event);
+          applyEvent(state, envelope.event, true);
+        }
+        ensureSelection();
+        break;
+      case "bridge:command":
+        break;
+    }
+
+    if (shouldRender) {
+      render();
+    }
+  };
+
+  const stopQuickDemo = (status?: string): void => {
+    if (demoIntervalId !== null) {
+      window.clearInterval(demoIntervalId);
+      demoIntervalId = null;
+    }
+
+    if (status) {
+      state.scenarioStatus = status;
+    }
+  };
+
+  const runQuickDemoTick = (): void => {
+    demoRuntime.tick += 1;
+    const now = Date.now();
+    const idBase = `demo_${demoRuntime.tick}_${now}`;
+
+    const previousCart = {
+      total: demoRuntime.cartTotal,
+      itemCount: demoRuntime.cartItemCount,
+    };
+    if (demoRuntime.tick % 3 === 0) {
+      demoRuntime.cartTotal = Math.max(1, demoRuntime.cartTotal - 1);
+      demoRuntime.cartItemCount = Math.max(1, demoRuntime.cartItemCount - 1);
+    } else {
+      demoRuntime.cartTotal += 3;
+      demoRuntime.cartItemCount += 1;
+    }
+    const nextCart = {
+      total: demoRuntime.cartTotal,
+      itemCount: demoRuntime.cartItemCount,
+    };
+
+    const previousSummary = {
+      grandTotal: roundCurrency(previousCart.total * 1.13),
+    };
+    const nextSummary = {
+      grandTotal: roundCurrency(nextCart.total * 1.13),
+    };
+
+    applyIncomingEnvelope(
+      {
+        type: "bridge:event",
+        appId: DEMO_TARGET_APP_ID,
+        emittedAt: now,
+        event: {
+          id: `${idBase}:cart`,
+          timestamp: now,
+          type: "store:updated",
+          storeId: "cart",
+          before: previousCart,
+          after: nextCart,
+          mutator: demoRuntime.tick % 3 === 0 ? "removeItem" : "addItem",
+          meta: {
+            storeType: "sync",
+          },
+        },
+      },
+      DEMO_TARGET_TAB_ID,
+      false,
+    );
+
+    applyIncomingEnvelope(
+      {
+        type: "bridge:event",
+        appId: DEMO_TARGET_APP_ID,
+        emittedAt: now + 1,
+        event: {
+          id: `${idBase}:dependency`,
+          timestamp: now + 1,
+          type: "dependency:triggered",
+          storeId: "cartSummary",
+          causedBy: "cart",
+          depth: 1,
+          meta: {
+            dependencies: ["cart"],
+            relationship: "derived",
+          },
+        },
+      },
+      DEMO_TARGET_TAB_ID,
+      false,
+    );
+
+    applyIncomingEnvelope(
+      {
+        type: "bridge:event",
+        appId: DEMO_TARGET_APP_ID,
+        emittedAt: now + 2,
+        event: {
+          id: `${idBase}:summary`,
+          timestamp: now + 2,
+          type: "store:updated",
+          storeId: "cartSummary",
+          before: previousSummary,
+          after: nextSummary,
+          causedBy: "cart",
+          mutator: "recompute",
+          performance: {
+            duration: roundCurrency(1.2 + (demoRuntime.tick % 5) * 0.35),
+          },
+          meta: {
+            storeType: "derived",
+            expression: "cartSummary = compute(cart)",
+            dependencies: ["cart"],
+            changedInputs: ["cart"],
+          },
+        },
+      },
+      DEMO_TARGET_TAB_ID,
+      false,
+    );
+
+    const asyncPhase = demoRuntime.tick % 4;
+    if (asyncPhase === 0) {
+      demoRuntime.inventoryStatus = "loading";
+      demoRuntime.lastAsyncDuration = 0;
+      applyIncomingEnvelope(
+        {
+          type: "bridge:event",
+          appId: DEMO_TARGET_APP_ID,
+          emittedAt: now + 3,
+          event: {
+            id: `${idBase}:inventory:start`,
+            timestamp: now + 3,
+            type: "async:start",
+            storeId: "inventory",
+            mutator: "refetch",
+            meta: {
+              triggerReason: "interval",
+              cacheSource: "network",
+            },
+          },
+        },
+        DEMO_TARGET_TAB_ID,
+        false,
+      );
+    } else if (asyncPhase === 2) {
+      demoRuntime.inventoryStatus = "error";
+      demoRuntime.inventoryOutcome = "error";
+      demoRuntime.lastAsyncDuration = roundCurrency(8 + demoRuntime.tick * 0.2);
+      applyIncomingEnvelope(
+        {
+          type: "bridge:event",
+          appId: DEMO_TARGET_APP_ID,
+          emittedAt: now + 3,
+          event: {
+            id: `${idBase}:inventory:error`,
+            timestamp: now + 3,
+            type: "async:error",
+            storeId: "inventory",
+            performance: {
+              duration: demoRuntime.lastAsyncDuration,
+            },
+            meta: {
+              error: "Demo network timeout",
+              triggerReason: "interval",
+            },
+          },
+        },
+        DEMO_TARGET_TAB_ID,
+        false,
+      );
+    } else {
+      demoRuntime.inventoryStatus = "success";
+      demoRuntime.inventoryOutcome = "success";
+      demoRuntime.inventoryStock = Math.max(0, demoRuntime.inventoryStock + (demoRuntime.tick % 2 === 0 ? -1 : 2));
+      demoRuntime.lastAsyncDuration = roundCurrency(4 + demoRuntime.tick * 0.12);
+      applyIncomingEnvelope(
+        {
+          type: "bridge:event",
+          appId: DEMO_TARGET_APP_ID,
+          emittedAt: now + 3,
+          event: {
+            id: `${idBase}:inventory:success`,
+            timestamp: now + 3,
+            type: "async:success",
+            storeId: "inventory",
+            performance: {
+              duration: demoRuntime.lastAsyncDuration,
+            },
+            meta: {
+              triggerReason: asyncPhase === 1 ? "manual" : "interval",
+              cacheSource: asyncPhase === 1 ? "cache" : "network",
+            },
+          },
+        },
+        DEMO_TARGET_TAB_ID,
+        false,
+      );
+    }
+
+    if (demoRuntime.tick % 5 === 0) {
+      applyIncomingEnvelope(
+        {
+          type: "bridge:event",
+          appId: DEMO_TARGET_APP_ID,
+          emittedAt: now + 4,
+          event: {
+            id: `${idBase}:psr`,
+            timestamp: now + 4,
+            type: "psr:blocked",
+            storeId: "cart",
+            meta: {
+              constraints: ["cart.total >= 0"],
+              reason: "Demo policy guard",
+            },
+          },
+        },
+        DEMO_TARGET_TAB_ID,
+        false,
+      );
+    }
+
+    for (const store of buildDemoStores()) {
+      applyIncomingEnvelope(
+        {
+          type: "bridge:store-patch",
+          appId: DEMO_TARGET_APP_ID,
+          emittedAt: now + 5,
+          store,
+        },
+        DEMO_TARGET_TAB_ID,
+        false,
+      );
+    }
+
+    render();
+  };
+
+  const startQuickDemo = (): void => {
+    stopQuickDemo();
+    demoRuntime.tick = 0;
+    demoRuntime.cartTotal = 18;
+    demoRuntime.cartItemCount = 2;
+    demoRuntime.inventoryStock = 30;
+    demoRuntime.inventoryStatus = "success";
+    demoRuntime.inventoryOutcome = "success";
+    demoRuntime.lastAsyncDuration = 0;
+
+    const demoTarget: PanelTarget = {
+      tabId: DEMO_TARGET_TAB_ID,
+      appId: DEMO_TARGET_APP_ID,
+      lastSeen: Date.now(),
+    };
+    upsertTarget(state, demoTarget);
+
+    state.selectedTarget = demoTarget;
+    state.appId = DEMO_TARGET_APP_ID;
+    state.connectionState = "connected";
+    state.mode = "debug";
+    resetTargetState();
+    state.scenarioStatus = "Quick demo running. Click Stop Demo any time.";
+
+    applyIncomingEnvelope(
+      {
+        type: "bridge:snapshot",
+        appId: DEMO_TARGET_APP_ID,
+        emittedAt: Date.now(),
+        stores: buildDemoStores(),
+      },
+      DEMO_TARGET_TAB_ID,
+      false,
+    );
+    runQuickDemoTick();
+    demoIntervalId = window.setInterval(runQuickDemoTick, 1_100);
+  };
+
   const onKeyDown = (event: KeyboardEvent): void => {
     if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) {
       return;
@@ -849,65 +1280,7 @@ export function mountDevtoolsPanel(
 
   return {
     receive(envelope, sourceTabId) {
-      const incomingTarget: PanelTarget = {
-        tabId: sourceTabId ?? -1,
-        appId: envelope.appId ?? "stroid-runtime",
-        lastSeen: Date.now(),
-      };
-
-      upsertTarget(state, incomingTarget);
-
-      if (!state.selectedTarget) {
-        state.selectedTarget = incomingTarget;
-        state.appId = incomingTarget.appId;
-      }
-
-      if (
-        state.selectedTarget &&
-        (incomingTarget.tabId !== state.selectedTarget.tabId ||
-          incomingTarget.appId !== state.selectedTarget.appId)
-      ) {
-        render();
-        return;
-      }
-
-      state.appId = incomingTarget.appId;
-
-      if (envelope.type !== "bridge:command") {
-        state.connectionState = "connected";
-      }
-
-      switch (envelope.type) {
-        case "bridge:snapshot":
-          state.stores = new Map(
-            envelope.stores.map((store) => [store.storeId, store] as const),
-          );
-          syncDrafts(state);
-          ensureSelection();
-          break;
-        case "bridge:store-patch":
-          state.stores.set(
-            envelope.store.storeId,
-            mergeStorePatch(state.stores.get(envelope.store.storeId), envelope.store),
-          );
-          ensureDraft(state, envelope.store.storeId);
-          ensureSelection();
-          break;
-        case "bridge:event":
-          if (state.paused) {
-            state.droppedEventCount += 1;
-            applyEvent(state, envelope.event, false);
-          } else {
-            state.events.push(envelope.event);
-            applyEvent(state, envelope.event, true);
-          }
-          ensureSelection();
-          break;
-        case "bridge:command":
-          break;
-      }
-
-      render();
+      applyIncomingEnvelope(envelope, sourceTabId);
     },
 
     setTargets(targets) {
@@ -924,11 +1297,12 @@ export function mountDevtoolsPanel(
     },
 
     setConnectionState(nextState) {
-      state.connectionState = nextState;
+      state.connectionState = demoIntervalId === null ? nextState : "connected";
       render();
     },
 
     destroy() {
+      stopQuickDemo();
       window.removeEventListener("keydown", onKeyDown);
       root.replaceChildren();
     },
@@ -1360,6 +1734,10 @@ function buildPropagationFlash(events: DevtoolEvent[]): {
     storeIds: [...storeIds],
     edgeKeys: [...edgeKeys],
   };
+}
+
+function roundCurrency(value: number): number {
+  return Math.round(value * 100) / 100;
 }
 
 
