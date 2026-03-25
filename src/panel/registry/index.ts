@@ -1,4 +1,5 @@
 import type { StoreDiagnostics } from "../analytics.js";
+import { computeStoreHealth } from "../insights.js";
 import type { DevtoolCommand, StroidStoreSnapshot } from "../../types.js";
 
 export interface RegistryRenderModel {
@@ -33,7 +34,7 @@ export function renderStoreRegistry(
   const subtitle = document.createElement("p");
   subtitle.textContent = model.appId
     ? `Connected to ${model.appId}`
-    : `${connectionLabel(model.connectionState)} with async and alert diagnostics`;
+    : `${connectionLabel(model.connectionState)} with health and performance insight`;
 
   titleGroup.append(title, subtitle);
 
@@ -56,6 +57,8 @@ export function renderStoreRegistry(
 
   for (const store of stores) {
     const diagnostics = model.diagnosticsByStore.get(store.storeId);
+    const health = computeStoreHealth(store, diagnostics);
+
     const row = document.createElement("button");
     row.type = "button";
     row.className =
@@ -85,6 +88,7 @@ export function renderStoreRegistry(
       createBadge(store.storeType, store.storeType),
       createBadge(store.status, store.status),
       createBadge(`${store.subscriberCount} subs`, "muted"),
+      createBadge(health.label, healthTone(health.label)),
     );
 
     if (store.async?.duration !== undefined) {
@@ -101,9 +105,9 @@ export function renderStoreRegistry(
 
     const detail = document.createElement("p");
     detail.className = "store-detail";
-    detail.textContent = buildDetailLine(store, diagnostics);
+    detail.textContent = buildDetailLine(store, diagnostics, health.score);
 
-    row.append(rowTop, meta, detail);
+    row.append(rowTop, meta, createSparkline(health.sparkline), detail);
     list.append(row);
   }
 
@@ -137,7 +141,7 @@ export function renderStoreRegistry(
       );
     }
   } else {
-    footer.append(createGhostText("Select a store to unlock Phase 1 actions."));
+    footer.append(createGhostText("Select a store to unlock runtime controls."));
   }
 
   container.append(header, list, footer);
@@ -199,6 +203,7 @@ function formatTimestamp(timestamp?: number): string {
 function buildDetailLine(
   store: StroidStoreSnapshot,
   diagnostics: StoreDiagnostics | undefined,
+  healthScore: number,
 ): string {
   const parts = [`updated ${formatTimestamp(store.updatedAt)}`];
 
@@ -214,5 +219,32 @@ function buildDetailLine(
     parts.push(`history ${diagnostics.subscriptionHistory.length} points`);
   }
 
-  return parts.join(" • ");
+  parts.push(`health ${healthScore}`);
+  return parts.join(" | ");
+}
+
+function createSparkline(points: number[]): HTMLDivElement {
+  const sparkline = document.createElement("div");
+  sparkline.className = "sparkline";
+  const max = Math.max(...points, 1);
+
+  for (const point of points) {
+    const bar = document.createElement("span");
+    bar.className = "sparkline-bar";
+    bar.style.height = `${Math.max(18, (point / max) * 100)}%`;
+    sparkline.append(bar);
+  }
+
+  return sparkline;
+}
+
+function healthTone(label: "healthy" | "watch" | "unstable"): string {
+  switch (label) {
+    case "healthy":
+      return "success";
+    case "watch":
+      return "loading";
+    default:
+      return "error";
+  }
 }
