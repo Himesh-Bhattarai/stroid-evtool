@@ -1,3 +1,4 @@
+import type { StoreDiagnostics } from "../analytics.js";
 import type { DevtoolCommand, StroidStoreSnapshot } from "../../types.js";
 
 export interface RegistryRenderModel {
@@ -5,6 +6,7 @@ export interface RegistryRenderModel {
   selectedStoreId: string | null;
   connectionState: "connecting" | "connected" | "disconnected";
   appId: string | null;
+  diagnosticsByStore: Map<string, StoreDiagnostics>;
 }
 
 export interface RegistryHandlers {
@@ -31,7 +33,7 @@ export function renderStoreRegistry(
   const subtitle = document.createElement("p");
   subtitle.textContent = model.appId
     ? `Connected to ${model.appId}`
-    : connectionLabel(model.connectionState);
+    : `${connectionLabel(model.connectionState)} with async and alert diagnostics`;
 
   titleGroup.append(title, subtitle);
 
@@ -53,6 +55,7 @@ export function renderStoreRegistry(
   }
 
   for (const store of stores) {
+    const diagnostics = model.diagnosticsByStore.get(store.storeId);
     const row = document.createElement("button");
     row.type = "button";
     row.className =
@@ -84,7 +87,23 @@ export function renderStoreRegistry(
       createBadge(`${store.subscriberCount} subs`, "muted"),
     );
 
-    row.append(rowTop, meta);
+    if (store.async?.duration !== undefined) {
+      meta.append(createBadge(`${store.async.duration.toFixed(1)}ms`, "loading"));
+    }
+
+    if (store.async?.cacheSource) {
+      meta.append(createBadge(store.async.cacheSource, "muted"));
+    }
+
+    if (diagnostics && diagnostics.alerts.length > 0) {
+      meta.append(createBadge(`${diagnostics.alerts.length} alerts`, "error"));
+    }
+
+    const detail = document.createElement("p");
+    detail.className = "store-detail";
+    detail.textContent = buildDetailLine(store, diagnostics);
+
+    row.append(rowTop, meta, detail);
     list.append(row);
   }
 
@@ -95,6 +114,9 @@ export function renderStoreRegistry(
 
   if (selectedStore) {
     footer.append(
+      createActionButton("Reset All", () => {
+        handlers.onCommand({ type: "stores:reset-all" });
+      }),
       createActionButton("Reset", () => {
         handlers.onCommand({ type: "store:reset", storeId: selectedStore.storeId });
       }),
@@ -172,4 +194,25 @@ function formatTimestamp(timestamp?: number): string {
     minute: "2-digit",
     second: "2-digit",
   }).format(timestamp);
+}
+
+function buildDetailLine(
+  store: StroidStoreSnapshot,
+  diagnostics: StoreDiagnostics | undefined,
+): string {
+  const parts = [`updated ${formatTimestamp(store.updatedAt)}`];
+
+  if (store.async?.triggerReason) {
+    parts.push(`trigger ${store.async.triggerReason}`);
+  }
+
+  if (store.async?.error) {
+    parts.push(`error ${store.async.error}`);
+  }
+
+  if (diagnostics?.subscriptionHistory.length) {
+    parts.push(`history ${diagnostics.subscriptionHistory.length} points`);
+  }
+
+  return parts.join(" • ");
 }
