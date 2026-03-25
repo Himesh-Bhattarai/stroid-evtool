@@ -20,11 +20,26 @@ import {
   findEventById,
 } from "./insights.js";
 import { renderStoreInspector } from "./inspector/index.js";
+import { renderPerformanceView } from "./performance/index.js";
 import { renderStoreRegistry } from "./registry/index.js";
+import {
+  analyzeWhySlow,
+  buildPerformanceReport,
+  buildSchemaReport,
+  compareSnapshots,
+  loadSnapshots,
+  parseScenarioDefinition,
+  runScenarioDefinition,
+  saveSnapshot,
+} from "./session-tools.js";
 import { renderTimeline } from "./timeline/index.js";
 
 type ConnectionState = "connecting" | "connected" | "disconnected";
-type RightPanelView = "timeline" | "graph";
+type RightPanelView = "timeline" | "graph" | "performance";
+const DEFAULT_SCENARIO_DRAFT = `{
+  "name": "Example scenario",
+  "steps": []
+}`;
 
 interface PanelState {
   appId: string | null;
@@ -43,6 +58,12 @@ interface PanelState {
   eventTypeFilter: string;
   mode: RuntimeMode;
   rightPanelView: RightPanelView;
+  snapshotNameDraft: string;
+  selectedLeftSnapshotId: string | null;
+  selectedRightSnapshotId: string | null;
+  scenarioDraft: string;
+  scenarioStatus: string | null;
+  scenarioLog: string[];
 }
 
 export interface PanelApp {
@@ -77,6 +98,12 @@ export function mountDevtoolsPanel(
     eventTypeFilter: "all",
     mode: "debug",
     rightPanelView: "timeline",
+    snapshotNameDraft: "",
+    selectedLeftSnapshotId: null,
+    selectedRightSnapshotId: null,
+    scenarioDraft: DEFAULT_SCENARIO_DRAFT,
+    scenarioStatus: null,
+    scenarioLog: [],
   };
 
   const render = (): void => {
@@ -96,7 +123,7 @@ export function mountDevtoolsPanel(
 
     const copy = document.createElement("p");
     copy.textContent =
-      "Phase 3: dependency graph, cause tracing, jump-to-state, store health, and reactive system insight.";
+      "Phase 4: scenarios, snapshots, performance forensics, schema awareness, and reactive system insight.";
 
     brand.append(heading, copy);
 
@@ -115,15 +142,27 @@ export function mountDevtoolsPanel(
     const layout = document.createElement("main");
     layout.className = "layout-grid";
 
+    const stores = [...state.stores.values()];
     const allEvents = state.events.getAll();
     const dependencyEdges = buildDependencyEdges(state.stores, allEvents);
+    const snapshots = state.appId ? loadSnapshots(state.appId) : [];
+    const leftSnapshot =
+      snapshots.find((snapshot) => snapshot.id === state.selectedLeftSnapshotId) ??
+      snapshots[0] ??
+      null;
+    const rightSnapshot =
+      snapshots.find((snapshot) => snapshot.id === state.selectedRightSnapshotId) ??
+      snapshots[1] ??
+      null;
+    const snapshotComparison = compareSnapshots(leftSnapshot, rightSnapshot);
+    const performanceReport = buildPerformanceReport(stores, allEvents);
 
     const registryColumn = document.createElement("section");
     registryColumn.className = "panel-column";
     renderStoreRegistry(
       registryColumn,
       {
-        stores: [...state.stores.values()],
+        stores,
         selectedStoreId: state.selectedStoreId,
         connectionState: state.connectionState,
         appId: state.appId,
@@ -165,6 +204,17 @@ export function mountDevtoolsPanel(
       snapshotEvent && (snapshotEvent.before !== undefined || snapshotEvent.after !== undefined)
         ? diff(snapshotEvent.before, snapshotEvent.after)
         : diagnostics?.lastDiff ?? null;
+    const causeTrace = liveStore ? buildCauseTrace(liveStore.storeId, allEvents) : [];
+    const derivedTrace = buildDerivedTrace(liveStore, allEvents);
+    const constraints = liveStore ? buildConstraintStates(liveStore.storeId, allEvents) : [];
+    const health = liveStore ? computeStoreHealth(liveStore, diagnostics ?? undefined) : null;
+    const slowAnalysis = analyzeWhySlow(
+      liveStore,
+      diagnostics ?? undefined,
+      derivedTrace,
+      health,
+    );
+    const schemaReport = buildSchemaReport(liveStore);
 
     const inspectorColumn = document.createElement("section");
     inspectorColumn.className = "panel-column panel-column--wide";
@@ -177,16 +227,24 @@ export function mountDevtoolsPanel(
       subscriberIds: diagnostics?.subscriberIds ?? [],
       alerts: diagnostics?.alerts ?? [],
       psrEvents: diagnostics?.psrEvents ?? [],
-      causeTrace: liveStore ? buildCauseTrace(liveStore.storeId, allEvents) : [],
-      derivedTrace: buildDerivedTrace(liveStore, allEvents),
-      constraints: liveStore ? buildConstraintStates(liveStore.storeId, allEvents) : [],
-      health: liveStore ? computeStoreHealth(liveStore, diagnostics ?? undefined) : null,
+      causeTrace,
+      derivedTrace,
+      constraints,
+      health,
+      slowAnalysis,
+      schemaReport,
       snapshotEvent,
+      snapshots,
+      snapshotNameDraft: state.snapshotNameDraft,
+      snapshotComparison,
       editDraft:
         liveStore
           ? state.editDrafts.get(liveStore.storeId) ?? safeStringify(liveStore.currentState)
           : "",
       editError: liveStore ? state.editErrors.get(liveStore.storeId) ?? null : null,
+      scenarioDraft: state.scenarioDraft,
+      scenarioStatus: state.scenarioStatus,
+      scenarioLog: state.scenarioLog,
       onDraftChange(value) {
         if (!liveStore) {
           return;
@@ -229,6 +287,87 @@ export function mountDevtoolsPanel(
         state.selectedEventId = null;
         render();
       },
+      onSnapshotNameChange(value) {
+        state.snapshotNameDraft = value;
+      },
+      onSaveSnapshot() {
+        if (!state.appId || stores.length === 0) {
+          state.scenarioStatus = "Connect to a runtime before saving snapshots.";
+          render();
+          return;
+        }
+
+        const snapshotName = state.snapshotNameDraft.trim() || `Snapshot ${snapshots.length + 1}`;
+        const nextSnapshots = saveSnapshot(state.appId, snapshotName, stores);
+        state.snapshotNameDraft = "";
+        state.selectedLeftSnapshotId = nextSnapshots[0]?.id ?? null;
+        state.selectedRightSnapshotId =
+          state.selectedRightSnapshotId ?? nextSnapshots[1]?.id ?? null;
+        state.scenarioStatus = `Saved snapshot "${snapshotName}".`;
+        render();
+      },
+      onSelectSnapshot(side, snapshotId) {
+        if (side === "left") {
+          state.selectedLeftSnapshotId = snapshotId;
+        } else {
+          state.selectedRightSnapshotId = snapshotId;
+        }
+        render();
+      },
+      onRestoreSnapshot(snapshotId) {
+        const snapshot = snapshots.find((record) => record.id === snapshotId);
+        if (!snapshot) {
+          return;
+        }
+
+        for (const store of snapshot.stores) {
+          options.sendCommand({
+            type: "store:edit",
+            storeId: store.storeId,
+            state: store.currentState,
+          });
+        }
+
+        state.scenarioStatus = `Restored ${snapshot.name}.`;
+        render();
+      },
+      onScenarioDraftChange(value) {
+        state.scenarioDraft = value;
+      },
+      onRunScenario() {
+        try {
+          const scenario = parseScenarioDefinition(state.scenarioDraft);
+          if (!scenario) {
+            state.scenarioStatus = "Enter a scenario definition first.";
+            state.scenarioLog = [];
+            render();
+            return;
+          }
+
+          state.scenarioStatus = `Running ${scenario.name}...`;
+          state.scenarioLog = [];
+          render();
+
+          void runScenarioDefinition(scenario, (command) => {
+            options.sendCommand(command);
+          })
+            .then((result) => {
+              state.scenarioStatus = `Ran ${result.name} at ${new Date(result.executedAt).toLocaleTimeString()}.`;
+              state.scenarioLog = result.log;
+              render();
+            })
+            .catch((error) => {
+              state.scenarioStatus =
+                error instanceof Error ? error.message : String(error);
+              state.scenarioLog = [];
+              render();
+            });
+        } catch (error) {
+          state.scenarioStatus = error instanceof Error ? error.message : String(error);
+          state.scenarioLog = [];
+          render();
+        }
+      },
     });
 
     const rightColumn = document.createElement("section");
@@ -236,7 +375,7 @@ export function mountDevtoolsPanel(
 
     if (state.rightPanelView === "graph") {
       renderDependencyGraph(rightColumn, {
-        stores: [...state.stores.values()],
+        stores,
         edges: dependencyEdges,
         selectedStoreId: state.selectedStoreId,
         onSelectStore(storeId) {
@@ -244,6 +383,15 @@ export function mountDevtoolsPanel(
           state.selectedEventId = null;
           render();
         },
+        onViewChange(view) {
+          state.rightPanelView = view;
+          render();
+        },
+      });
+    } else if (state.rightPanelView === "performance") {
+      renderPerformanceView(rightColumn, {
+        report: performanceReport,
+        activeView: state.rightPanelView,
         onViewChange(view) {
           state.rightPanelView = view;
           render();
