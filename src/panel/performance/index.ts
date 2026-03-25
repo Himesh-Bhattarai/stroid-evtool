@@ -1,3 +1,14 @@
+/**
+ * @module src/panel/performance/index
+ * @memberof StroidDevtools
+ * @typedef {Record<string, unknown>} ModuleDocShape
+ * @what owns Core logic for src/panel/performance/index.
+ * @who owns Stroid Devtools maintainers.
+ * @likelyBreakpoint Runtime event normalization, UI render paths, or command routing in this module.
+ * @param {unknown} [input] Module-level JSDoc anchor for tooling consistency.
+ * @returns {void}
+ * @public
+ */
 import type { PerformanceReport } from "../session-tools.js";
 
 export interface PerformanceRenderModel {
@@ -145,3 +156,5 @@ function createEmptyState(message: string): HTMLDivElement {
   empty.textContent = message;
   return empty;
 }
+
+
