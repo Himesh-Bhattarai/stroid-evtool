@@ -1,69 +1,282 @@
-# Stroid Devtools
+# Stroid DevTools
 
-Stroid Devtools is a registry-first browser DevTools extension for inspecting a live Stroid runtime. The repository now covers Phase 1 through the core of Phase 4 from the roadmap, including dependency graphing, cause tracing, snapshots, scenario execution, schema checks, and a dedicated performance view.
+Stroid DevTools is a runtime debugger for state systems.
 
-## Current scope
+It gives you one control room to inspect stores, trace why state changed, visualize dependencies, replay and snapshot runtime behavior, and control the runtime safely from a DevTools panel.
 
-- Bridge architecture with an event emitter plus `postMessage` / `BroadcastChannel` transport
-- Shared `DevtoolEvent` contract including `causedBy`, `depth`, and `performance`
-- Store registry with reset, delete, reset-all, and async re-fetch actions
-- Store inspector with current state, previous state, structural diff, field history, cause trace, subscription debugging, live constraints, store health, PSR activity, jump-to-state snapshots, and edit-state controls
-- Timeline with timestamps, store IDs, diff summaries, pause/filter/clear controls, runtime mode toggles, and click-to-inspect snapshots
-- Dependency graph view with interactive store selection and highlighted propagation neighbors
-- Store health scoring plus lightweight performance sparklines in the registry
-- Async lifecycle and alert diagnostics surfaced directly in the panel
-- Snapshot lab with save/compare/restore workflows
-- Scenario runner for scripted command sequences
-- Scenario step-by-step diff summaries after each scripted action
-- Schema awareness and rule-based "Why is this slow?" diagnostics
-- Session export as `.stroid-session`
-- Session import from `.stroid-session`
-- Performance tab with global and per-store metrics
-- Keyboard shortcuts: `P` pause, `C` clear, `F` focus filter, `G` graph toggle
-- Multi-target switcher for multiple app instances / tabs
-- Control panel mutator trigger and runtime store creation
-- Extension messaging path that relays runtime events from the page into the DevTools panel
+## What Problems It Solves
 
-## Build
+- Which store changed, and when?
+- What exactly changed inside it?
+- What caused that change?
+- Which other stores were affected?
+- Why is this store updating so often?
+- Is async state failing, retrying, or stuck?
+- Does current state still match the expected schema?
+- Can I capture this moment and compare it later?
+- Can I replay a bug instead of reproducing it manually?
+
+## Why It Matters
+
+- Eliminates blind debugging
+- Makes state transitions visible and traceable
+- Surfaces hidden issues in async and reactive flows
+- Turns runtime behavior into something explainable
+- Enables reproducible debugging with snapshots and replay
+
+## DevTools Philosophy
+
+The system is built around three layers:
+
+- Observation: see what is happening
+- Explanation: understand why it is happening
+- Control: change behavior and reproduce issues
+
+That design turns the panel from a passive viewer into an active debugging platform.
+
+## Architecture Overview
+
+### `src/panel/index.tsx`
+Panel coordinator. It connects registry, inspector, timeline, dependency graph, performance view, and command routing.
+
+### `src/panel/insights.ts`
+Interpretation layer. It derives:
+
+- cause traces
+- dependency relationships
+- derived-store recompute traces
+- constraint state views
+- store health scores
+
+### `src/panel/session-tools.ts`
+Runtime analysis and simulation layer. It powers:
+
+- snapshots (save, compare, restore support flows)
+- scenario runner
+- performance reports
+- "why is this slow?" diagnostics
+- schema validation
+- session export/import (`.stroid-session`)
+
+### `src/bridge/index.ts` and `src/bridge/channel.ts`
+Runtime bridge layer. It:
+
+- normalizes runtime events
+- sends/receives bridge envelopes
+- supports `postMessage` and `BroadcastChannel`
+- routes panel commands back to the runtime
+
+## Feature Coverage
+
+### Observation
+
+- Store registry with status, subscribers, update freshness, and controls
+- Store inspector with current/previous state and structural diff
+- Timeline with event rows, filters, pause/clear, and jump-to-event
+- Async lifecycle tracking (`async:start`, `async:success`, `async:error`)
+- Field-level history in inspector
+
+### Explanation
+
+- Dependency graph with propagation flash
+- Event cause tracing using `causedBy` chains
+- Derived trace with changed inputs and recompute cost
+- Constraint status panel for PSR events
+- Smart alerts (over-subscription, thrashing, loop suspicion)
+- Store health scoring
+- Rule-based slow-analysis hints
+
+### Control
+
+- Edit store state
+- Reset, delete, and refetch store
+- Trigger mutator with JSON args
+- Create store at runtime
+- Reset all stores
+- Runtime modes (`debug`, `trace`, `freeze`, `replay`)
+- Scenario runner (scripted command/wait steps)
+- Snapshot save/compare
+- Session export/import
+- Multi-target switching across tabs/apps
+
+## Install And Run
+
+### 1) Install dependencies
+
+```bash
+npm install
+```
+
+### 2) Build extension + library output
 
 ```bash
 npm run build
 ```
 
-The build writes the compiled extension into `dist/`. Load `dist/` as an unpacked Chromium extension.
+Build output is written to `dist/`.
 
-## Runtime integration
+### 3) Load extension in Chromium browser
+
+1. Open `chrome://extensions`
+2. Enable **Developer mode**
+3. Click **Load unpacked**
+4. Select the `dist/` folder
+5. Open your app tab, then open DevTools
+6. Open the **Stroid Devtool** panel
+
+## Runtime Integration
 
 Attach the bridge inside the app that owns the Stroid registry:
 
 ```ts
 import { createStroidDevtoolsBridge } from "stroid-devtools";
 
-createStroidDevtoolsBridge(stroidRegistry, {
+const bridge = createStroidDevtoolsBridge(stroidRegistry, {
   appId: "checkout-app",
+  channelKey: "stroid-devtools",
+  transport: "both", // "window" | "broadcast" | "both"
 });
 ```
 
-The bridge expects a registry-like object with:
+### Expected registry contract
 
-- `onEvent(listener)` to stream runtime events
-- `getRegistrySnapshot()` or `getStores()` to provide store metadata and snapshots
-- `getStoreSnapshot(storeId)` for precise store updates after events
-- `resetStore(storeId)`, `deleteStore(storeId)`, and `refetchStore(storeId)` or a single `dispatchDevtoolsCommand(command)`
+Required:
 
-## Project layout
+- `onEvent(listener)`
+
+Recommended for full feature support:
+
+- `getRegistrySnapshot()` or `getStores()`
+- `getStoreSnapshot(storeId)`
+- `resetStore(storeId)`
+- `editStore(storeId, state)`
+- `deleteStore(storeId)`
+- `refetchStore(storeId)`
+- `triggerStoreMutator(storeId, mutator, args?)`
+- `createStore(storeId, options?)`
+- `resetAllStores()`
+- `setDevtoolsMode(mode)`
+- `replayEvents(speed)`
+
+Alternative command path:
+
+- `dispatchDevtoolsCommand(command)` (single command dispatcher)
+
+## Daily Workflow
+
+### 1) Connect and target the right runtime
+
+- Open panel and pick target app/tab from the top selector.
+- Handshake runs automatically when target changes.
+
+### 2) Inspect a store
+
+- Select a store from registry.
+- Review current vs previous state.
+- Use state search to find keys/values quickly.
+
+### 3) Trace behavior in timeline
+
+- Filter by store and event type.
+- Pause recording when you want to inspect a stable slice.
+- Jump to a timeline row to inspect that event snapshot.
+
+### 4) Explain why it changed
+
+- Open cause trace for causal chain.
+- Use dependency graph to see upstream/downstream impact.
+- Check alerts and health score for instability patterns.
+
+### 5) Reproduce and test fixes
+
+- Run a scenario script in inspector.
+- Save snapshots before/after.
+- Compare snapshots to verify the fix.
+- Export a `.stroid-session` file to share with teammates.
+
+## Scenario Runner Format
+
+Use JSON in the scenario editor:
+
+```json
+{
+  "name": "Checkout Flow",
+  "steps": [
+    {
+      "type": "command",
+      "label": "Edit cart",
+      "command": {
+        "type": "store:edit",
+        "storeId": "cart",
+        "state": { "total": 12 }
+      }
+    },
+    {
+      "type": "wait",
+      "label": "Settle",
+      "ms": 50
+    }
+  ]
+}
+```
+
+## Keyboard Shortcuts
+
+- `P`: pause/resume timeline recording
+- `C`: clear timeline
+- `F`: focus store filter
+- `G`: toggle timeline/graph view
+
+## Testing
+
+Run full build + tests:
+
+```bash
+npm test
+```
+
+Run tests only:
+
+```bash
+npm run test:unit
+```
+
+Current suite includes:
+
+- feature tests
+- edge-case tests
+- helper contract tests
+- fuzzy/randomized diff tests
+- smoke tests for public API
+
+## Project Structure
 
 ```text
 src/
   bridge/
   buffer/
-  panel/
+  diff/
   extension/
+  panel/
   types.ts
 static/extension/
+tests/
 scripts/build.mjs
 ```
 
-## Roadmap status
+## Roadmap And Governance
 
-Roadmap compliance is tracked in `ROADMAP_COMPLIANCE.md` and is currently marked complete for the audited contract.
+- Product build contract: `ROADMAP.md`
+- Commit status taxonomy: `STATUS.md`
+- Contribution guide: `CONTRIBUTING.md`
+- Code of conduct: `CODE_OF_CONDUCT.md`
+- Security policy: `SECURITY.md`
+- License: `LICENSE` (MIT)
+
+## Changelog
+
+Release history is tracked in [CHANGELOG.md](./CHANGELOG.md).
+
+## One-line Summary
+
+Stroid DevTools is the control room for state systems: runtime behavior becomes visible, explainable, and reproducible.
