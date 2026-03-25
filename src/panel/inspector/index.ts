@@ -6,6 +6,12 @@ import type {
   DerivedTrace,
   StoreHealthReport,
 } from "../insights.js";
+import type {
+  SchemaReport,
+  SlowAnalysis,
+  SnapshotComparison,
+  SnapshotRecord,
+} from "../session-tools.js";
 import type { DevtoolEvent, StroidStoreSnapshot } from "../../types.js";
 
 export interface InspectorRenderModel {
@@ -21,13 +27,27 @@ export interface InspectorRenderModel {
   derivedTrace: DerivedTrace | null;
   constraints: ConstraintState[];
   health: StoreHealthReport | null;
+  slowAnalysis: SlowAnalysis | null;
+  schemaReport: SchemaReport | null;
   snapshotEvent: DevtoolEvent | null;
+  snapshots: SnapshotRecord[];
+  snapshotNameDraft: string;
+  snapshotComparison: SnapshotComparison | null;
   editDraft: string;
   editError: string | null;
+  scenarioDraft: string;
+  scenarioStatus: string | null;
+  scenarioLog: string[];
   onDraftChange(value: string): void;
   onApplyDraft(): void;
   onSelectField(path: string): void;
   onClearSnapshot(): void;
+  onSnapshotNameChange(value: string): void;
+  onSaveSnapshot(): void;
+  onSelectSnapshot(side: "left" | "right", snapshotId: string): void;
+  onRestoreSnapshot(snapshotId: string): void;
+  onScenarioDraftChange(value: string): void;
+  onRunScenario(): void;
 }
 
 export function renderStoreInspector(
@@ -47,7 +67,7 @@ export function renderStoreInspector(
 
   const subtitle = document.createElement("p");
   subtitle.textContent = model.store
-    ? "Structural diff, causal trace, health, and direct runtime controls."
+    ? "Structural diff, causal trace, scenarios, snapshots, and direct runtime controls."
     : "Select a store to inspect live runtime state.";
 
   titleGroup.append(title, subtitle);
@@ -174,12 +194,16 @@ export function renderStoreInspector(
     metadata,
     createCauseTraceSection(model.causeTrace),
     createHealthSection(model.health),
+    createSlowAnalysisSection(model.slowAnalysis),
     currentSection,
     previousSection,
     createDiffSection(model.diffResult),
     createFieldHistorySection(model.fieldHistory, model.selectedFieldPath),
     createDerivedTraceSection(model.derivedTrace),
     createConstraintSection(model.constraints, model.psrEvents),
+    createSchemaSection(model.schemaReport),
+    createSnapshotSection(model),
+    createScenarioSection(model),
     createSubscriptionSection(model.liveStore?.subscriberCount ?? model.store.subscriberCount, model.subscriberIds),
     createControlSection(model),
   );
@@ -391,6 +415,30 @@ function createHealthSection(health: StoreHealthReport | null): HTMLElement {
   return section;
 }
 
+function createSlowAnalysisSection(report: SlowAnalysis | null): HTMLElement {
+  const section = document.createElement("section");
+  section.className = "inspector-section";
+  section.append(createSectionHeading("Why Is This Slow?"));
+
+  if (!report) {
+    section.append(createEmptyState("Slow analysis appears once runtime evidence is available."));
+    return section;
+  }
+
+  const headline = document.createElement("strong");
+  headline.className = "field-history-title";
+  headline.textContent = report.headline;
+
+  const list = document.createElement("div");
+  list.className = "badge-row";
+  for (const reason of report.reasons) {
+    list.append(createToken(reason));
+  }
+
+  section.append(headline, list);
+  return section;
+}
+
 function createDiffSection(result: DiffResult | null): HTMLElement {
   const section = document.createElement("section");
   section.className = "inspector-section";
@@ -530,6 +578,177 @@ function createConstraintSection(
   return section;
 }
 
+function createSchemaSection(report: SchemaReport | null): HTMLElement {
+  const section = document.createElement("section");
+  section.className = "inspector-section";
+  section.append(createSectionHeading("Schema Awareness"));
+
+  if (!report) {
+    section.append(createEmptyState("Schema labels appear when the runtime exposes store.meta.schema."));
+    return section;
+  }
+
+  const title = document.createElement("strong");
+  title.className = "field-history-title";
+  title.textContent = report.label;
+
+  section.append(title);
+
+  if (report.issues.length === 0) {
+    section.append(createToken("current state matches schema"));
+    return section;
+  }
+
+  const list = document.createElement("div");
+  list.className = "diff-list";
+  for (const issue of report.issues) {
+    const item = document.createElement("div");
+    item.className = "diff-card";
+    item.textContent = `${issue.path} expected ${issue.expected}, got ${issue.actual}`;
+    list.append(item);
+  }
+
+  section.append(list);
+  return section;
+}
+
+function createSnapshotSection(model: InspectorRenderModel): HTMLElement {
+  const section = document.createElement("section");
+  section.className = "inspector-section";
+  section.append(createSectionHeading("Snapshot Lab"));
+
+  const controls = document.createElement("div");
+  controls.className = "timeline-controls";
+
+  const input = document.createElement("input");
+  input.className = "timeline-select";
+  input.value = model.snapshotNameDraft;
+  input.placeholder = "Snapshot name";
+  input.addEventListener("input", () => {
+    model.onSnapshotNameChange(input.value);
+  });
+
+  const saveButton = document.createElement("button");
+  saveButton.type = "button";
+  saveButton.className = "action-button";
+  saveButton.textContent = "Save Snapshot";
+  saveButton.addEventListener("click", () => {
+    model.onSaveSnapshot();
+  });
+
+  controls.append(input, saveButton);
+  section.append(controls);
+
+  if (model.snapshotComparison) {
+    const compare = document.createElement("div");
+    compare.className = "diff-card";
+    compare.textContent = `${model.snapshotComparison.left.name} vs ${model.snapshotComparison.right.name}`;
+    section.append(compare);
+
+    const compareList = document.createElement("div");
+    compareList.className = "diff-list";
+    for (const store of model.snapshotComparison.stores.slice(0, 8)) {
+      const item = document.createElement("div");
+      item.className = "diff-card";
+      item.textContent = `${store.storeId}: ${store.summary}`;
+      compareList.append(item);
+    }
+    section.append(compareList);
+  }
+
+  if (model.snapshots.length === 0) {
+    section.append(createEmptyState("Saved snapshots will appear here."));
+    return section;
+  }
+
+  const list = document.createElement("div");
+  list.className = "diff-list";
+
+  for (const snapshot of model.snapshots) {
+    const card = document.createElement("div");
+    card.className = "diff-card";
+
+    const top = document.createElement("div");
+    top.className = "diff-card-top";
+
+    const name = document.createElement("strong");
+    name.textContent = snapshot.name;
+
+    const created = document.createElement("span");
+    created.className = "badge badge--muted";
+    created.textContent = formatTimestamp(snapshot.createdAt);
+
+    top.append(name, created);
+
+    const actions = document.createElement("div");
+    actions.className = "badge-row";
+    actions.append(
+      createSmallAction("Base", () => {
+        model.onSelectSnapshot("left", snapshot.id);
+      }),
+      createSmallAction("Compare", () => {
+        model.onSelectSnapshot("right", snapshot.id);
+      }),
+      createSmallAction("Restore", () => {
+        model.onRestoreSnapshot(snapshot.id);
+      }),
+    );
+
+    card.append(top, actions);
+    list.append(card);
+  }
+
+  section.append(list);
+  return section;
+}
+
+function createScenarioSection(model: InspectorRenderModel): HTMLElement {
+  const section = document.createElement("section");
+  section.className = "inspector-section";
+  section.append(createSectionHeading("Scenario Runner"));
+
+  const textarea = document.createElement("textarea");
+  textarea.className = "state-editor";
+  textarea.value = model.scenarioDraft;
+  textarea.spellcheck = false;
+  textarea.addEventListener("input", () => {
+    model.onScenarioDraftChange(textarea.value);
+  });
+
+  const footer = document.createElement("div");
+  footer.className = "column-actions";
+
+  const runButton = document.createElement("button");
+  runButton.type = "button";
+  runButton.className = "action-button";
+  runButton.textContent = "Run Scenario";
+  runButton.addEventListener("click", () => {
+    model.onRunScenario();
+  });
+
+  footer.append(runButton);
+
+  section.append(textarea, footer);
+
+  if (model.scenarioStatus) {
+    const status = document.createElement("p");
+    status.className = "ghost-copy";
+    status.textContent = model.scenarioStatus;
+    section.append(status);
+  }
+
+  if (model.scenarioLog.length > 0) {
+    const log = document.createElement("div");
+    log.className = "badge-row";
+    for (const entry of model.scenarioLog) {
+      log.append(createToken(entry));
+    }
+    section.append(log);
+  }
+
+  return section;
+}
+
 function createSubscriptionSection(subscriberCount: number, subscriberIds: string[]): HTMLElement {
   const section = document.createElement("section");
   section.className = "inspector-section";
@@ -599,6 +818,15 @@ function createToken(label: string): HTMLSpanElement {
   badge.className = "badge badge--muted";
   badge.textContent = label;
   return badge;
+}
+
+function createSmallAction(label: string, onClick: () => void): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "mode-chip";
+  button.textContent = label;
+  button.addEventListener("click", onClick);
+  return button;
 }
 
 function diffTone(kind: "added" | "removed" | "modified"): "success" | "error" | "loading" {
