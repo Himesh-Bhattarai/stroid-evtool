@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "Stroid Devtools",
+  "description": "Registry inspector for live Stroid runtimes.",
+  "version": "0.1.0",
+  "devtools_page": "devtools.html",
+  "permissions": [
+    "tabs",
+    "storage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "src/extension/service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "src/extension/content-script.js"
+      ],
+      "run_at": "document_start"
+    }
+  ]
+}
