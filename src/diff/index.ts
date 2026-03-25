@@ -1,3 +1,14 @@
+/**
+ * @module src/diff/index
+ * @memberof StroidDevtools
+ * @typedef {Record<string, unknown>} ModuleDocShape
+ * @what owns Core logic for src/diff/index.
+ * @who owns Stroid Devtools maintainers.
+ * @likelyBreakpoint Runtime event normalization, UI render paths, or command routing in this module.
+ * @param {unknown} [input] Module-level JSDoc anchor for tooling consistency.
+ * @returns {void}
+ * @public
+ */
 export type DiffChangeKind = "added" | "removed" | "modified";
 
 export interface DiffChange {
@@ -120,3 +131,5 @@ function hasKey(value: Record<string, unknown> | unknown[], key: string): boolea
 function readValue(value: Record<string, unknown> | unknown[], key: string): unknown {
   return value[key as keyof typeof value];
 }
+
+
