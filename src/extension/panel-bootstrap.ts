@@ -1,3 +1,14 @@
+/**
+ * @module src/extension/panel-bootstrap
+ * @memberof StroidDevtools
+ * @typedef {Record<string, unknown>} ModuleDocShape
+ * @what owns Core logic for src/extension/panel-bootstrap.
+ * @who owns Stroid Devtools maintainers.
+ * @likelyBreakpoint Runtime event normalization, UI render paths, or command routing in this module.
+ * @param {unknown} [input] Module-level JSDoc anchor for tooling consistency.
+ * @returns {void}
+ * @public
+ */
 import { createBridgeChannel } from "../bridge/channel.js";
 import { mountDevtoolsPanel } from "../panel/index.js";
 import type { BridgeEnvelope, DevtoolCommand } from "../types.js";
@@ -26,12 +37,12 @@ function bootstrap(): void {
   let fallbackChannel: ReturnType<typeof createBridgeChannel> | null = null;
 
   const app = mountDevtoolsPanel(root, {
-    sendCommand(command: DevtoolCommand) {
+    sendCommand(command: DevtoolCommand, route?: { tabId?: number; appId?: string }) {
       if (port && chrome?.devtools?.inspectedWindow) {
         port.postMessage({
           kind: "stroid:panel-command",
-          tabId: chrome.devtools.inspectedWindow.tabId,
-          appId: null,
+          targetTabId: route?.tabId ?? chrome.devtools.inspectedWindow.tabId,
+          appId: route?.appId ?? null,
           command,
         });
         return;
@@ -39,6 +50,7 @@ function bootstrap(): void {
 
       fallbackChannel?.send({
         type: "bridge:command",
+        appId: route?.appId,
         emittedAt: Date.now(),
         command,
       });
@@ -50,11 +62,30 @@ function bootstrap(): void {
     port = chrome.runtime.connect({ name: "stroid-devtools-panel" });
     port.onMessage.addListener((message: unknown) => {
       const record = asRecord(message);
-      if (!record || record.kind !== "stroid:panel-envelope" || !isBridgeEnvelope(record.envelope)) {
+      if (!record) {
         return;
       }
 
-      app.receive(record.envelope);
+      if (record.kind === "stroid:panel-envelope" && isBridgeEnvelope(record.envelope)) {
+        app.receive(
+          record.envelope,
+          typeof record.sourceTabId === "number" ? record.sourceTabId : null,
+        );
+        return;
+      }
+
+      if (record.kind === "stroid:targets" && Array.isArray(record.targets)) {
+        app.setTargets(
+          record.targets.filter((entry) => {
+            const candidate = asRecord(entry);
+            return (
+              candidate &&
+              typeof candidate.tabId === "number" &&
+              typeof candidate.appId === "string"
+            );
+          }) as Array<{ tabId: number; appId: string; lastSeen?: number }>,
+        );
+      }
     });
 
     port.onDisconnect.addListener(() => {
@@ -65,11 +96,14 @@ function bootstrap(): void {
       kind: "stroid:panel-ready",
       tabId: chrome.devtools.inspectedWindow.tabId,
     });
+    port.postMessage({
+      kind: "stroid:request-targets",
+    });
   } else {
     app.setConnectionState("connecting");
     fallbackChannel = createBridgeChannel();
     unsubscribeFallback = fallbackChannel.subscribe((envelope) => {
-      app.receive(envelope);
+      app.receive(envelope, null);
     });
     fallbackChannel.send({
       type: "bridge:command",
@@ -91,3 +125,5 @@ function bootstrap(): void {
 }
 
 document.addEventListener("DOMContentLoaded", bootstrap);
+
+
