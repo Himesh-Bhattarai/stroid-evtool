@@ -1,3 +1,14 @@
+/**
+ * @module src/bridge/index
+ * @memberof StroidDevtools
+ * @typedef {Record<string, unknown>} ModuleDocShape
+ * @what owns Core logic for src/bridge/index.
+ * @who owns Stroid Devtools maintainers.
+ * @likelyBreakpoint Runtime event normalization, UI render paths, or command routing in this module.
+ * @param {unknown} [input] Module-level JSDoc anchor for tooling consistency.
+ * @returns {void}
+ * @public
+ */
 import { createBridgeChannel } from "./channel.js";
 import { normalizeDevtoolEvent, snapshotRegistry, snapshotStore } from "./normalizer.js";
 import type {
@@ -47,6 +58,15 @@ function routeCommand(registry: StroidRegistryLike, command: DevtoolCommand): vo
       return;
     case "store:refetch":
       registry.refetchStore?.(command.storeId);
+      return;
+    case "store:trigger-mutator":
+      registry.triggerStoreMutator?.(command.storeId, command.mutator, command.args);
+      return;
+    case "store:create":
+      registry.createStore?.(command.storeId, {
+        storeType: command.storeType,
+        initialState: command.initialState,
+      });
       return;
     case "stores:reset-all":
       registry.resetAllStores?.();
@@ -180,3 +200,5 @@ export function createStroidDevtoolsBridge(
     },
   };
 }
+
+
