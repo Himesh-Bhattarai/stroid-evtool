@@ -6,7 +6,7 @@ export interface GraphRenderModel {
   edges: DependencyEdge[];
   selectedStoreId: string | null;
   onSelectStore(storeId: string): void;
-  onViewChange(view: "timeline" | "graph"): void;
+  onViewChange(view: "timeline" | "graph" | "performance"): void;
 }
 
 export function renderDependencyGraph(
@@ -37,6 +37,9 @@ export function renderDependencyGraph(
     }),
     createToggleButton("Graph", true, () => {
       model.onViewChange("graph");
+    }),
+    createToggleButton("Performance", false, () => {
+      model.onViewChange("performance");
     }),
   );
 
