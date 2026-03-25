@@ -1,20 +1,33 @@
 import type { DiffResult } from "../../diff/index.js";
 import type { FieldHistoryPoint, StoreAlert } from "../analytics.js";
+import type {
+  CauseTraceStep,
+  ConstraintState,
+  DerivedTrace,
+  StoreHealthReport,
+} from "../insights.js";
 import type { DevtoolEvent, StroidStoreSnapshot } from "../../types.js";
 
 export interface InspectorRenderModel {
   store: StroidStoreSnapshot | null;
+  liveStore: StroidStoreSnapshot | null;
   diffResult: DiffResult | null;
   fieldHistory: Array<{ path: string; points: FieldHistoryPoint[] }>;
   selectedFieldPath: string | null;
   subscriberIds: string[];
   alerts: StoreAlert[];
   psrEvents: DevtoolEvent[];
+  causeTrace: CauseTraceStep[];
+  derivedTrace: DerivedTrace | null;
+  constraints: ConstraintState[];
+  health: StoreHealthReport | null;
+  snapshotEvent: DevtoolEvent | null;
   editDraft: string;
   editError: string | null;
   onDraftChange(value: string): void;
   onApplyDraft(): void;
   onSelectField(path: string): void;
+  onClearSnapshot(): void;
 }
 
 export function renderStoreInspector(
@@ -34,7 +47,7 @@ export function renderStoreInspector(
 
   const subtitle = document.createElement("p");
   subtitle.textContent = model.store
-    ? "Structural diff, field history, and direct runtime controls."
+    ? "Structural diff, causal trace, health, and direct runtime controls."
     : "Select a store to inspect live runtime state.";
 
   titleGroup.append(title, subtitle);
@@ -55,6 +68,9 @@ export function renderStoreInspector(
   storeName.className = "inspector-store-name";
   storeName.textContent = model.store.storeId;
 
+  const toolbarActions = document.createElement("div");
+  toolbarActions.className = "mode-switcher";
+
   const copyButton = document.createElement("button");
   copyButton.type = "button";
   copyButton.className = "action-button";
@@ -65,7 +81,28 @@ export function renderStoreInspector(
     );
   });
 
-  toolbar.append(storeName, copyButton);
+  toolbarActions.append(copyButton);
+
+  if (model.snapshotEvent) {
+    const liveButton = document.createElement("button");
+    liveButton.type = "button";
+    liveButton.className = "action-button action-button--ghost";
+    liveButton.textContent = "Back To Live";
+    liveButton.addEventListener("click", () => {
+      model.onClearSnapshot();
+    });
+    toolbarActions.append(liveButton);
+  }
+
+  toolbar.append(storeName, toolbarActions);
+  container.append(header, toolbar);
+
+  if (model.snapshotEvent) {
+    const snapshotBanner = document.createElement("div");
+    snapshotBanner.className = "alert-banner alert-banner--warning";
+    snapshotBanner.textContent = `Jumped to ${model.snapshotEvent.type} at ${formatTimestamp(model.snapshotEvent.timestamp)}. Inspector is showing a historical snapshot only.`;
+    container.append(snapshotBanner);
+  }
 
   if (model.alerts.length > 0) {
     const alerts = document.createElement("div");
@@ -76,9 +113,7 @@ export function renderStoreInspector(
       banner.textContent = alert.message;
       alerts.append(banner);
     }
-    container.append(header, toolbar, alerts);
-  } else {
-    container.append(header, toolbar);
+    container.append(alerts);
   }
 
   const metadata = document.createElement("div");
@@ -86,22 +121,31 @@ export function renderStoreInspector(
   metadata.append(
     createMetadataCard("Store Type", model.store.storeType),
     createMetadataCard("Status", model.store.status),
-    createMetadataCard("Subscribers", String(model.store.subscriberCount)),
-    createMetadataCard("Created", formatTimestamp(model.store.createdAt)),
-    createMetadataCard("Updated", formatTimestamp(model.store.updatedAt)),
-    createMetadataCard("Last Event", model.store.lastEventId ?? "n/a"),
+    createMetadataCard("Subscribers", String(model.liveStore?.subscriberCount ?? model.store.subscriberCount)),
+    createMetadataCard("Created", formatTimestamp(model.liveStore?.createdAt ?? model.store.createdAt)),
+    createMetadataCard("Updated", formatTimestamp(model.liveStore?.updatedAt ?? model.store.updatedAt)),
+    createMetadataCard("Last Event", model.liveStore?.lastEventId ?? model.store.lastEventId ?? "n/a"),
   );
 
-  if (model.store.async?.duration !== undefined) {
-    metadata.append(createMetadataCard("Async Duration", `${model.store.async.duration.toFixed(1)}ms`));
+  if (model.health) {
+    metadata.append(
+      createMetadataCard("Health", `${model.health.label} (${model.health.score})`),
+      createMetadataCard("Updates / Min", String(model.health.updatesPerMinute)),
+    );
   }
 
-  if (model.store.async?.triggerReason) {
-    metadata.append(createMetadataCard("Async Trigger", model.store.async.triggerReason));
+  if (model.liveStore?.async?.duration !== undefined) {
+    metadata.append(
+      createMetadataCard("Async Duration", `${model.liveStore.async.duration.toFixed(1)}ms`),
+    );
   }
 
-  if (model.store.async?.error) {
-    metadata.append(createMetadataCard("Async Error", model.store.async.error));
+  if (model.liveStore?.async?.triggerReason) {
+    metadata.append(createMetadataCard("Async Trigger", model.liveStore.async.triggerReason));
+  }
+
+  if (model.liveStore?.async?.error) {
+    metadata.append(createMetadataCard("Async Error", model.liveStore.async.error));
   }
 
   const currentSection = document.createElement("section");
@@ -126,24 +170,18 @@ export function renderStoreInspector(
     }),
   );
 
-  const diffSection = createDiffSection(model.diffResult);
-  const fieldHistorySection = createFieldHistorySection(
-    model.fieldHistory,
-    model.selectedFieldPath,
-  );
-  const subscriptionSection = createSubscriptionSection(model.store.subscriberCount, model.subscriberIds);
-  const psrSection = createPsrSection(model.psrEvents);
-  const controlSection = createControlSection(model);
-
   container.append(
     metadata,
+    createCauseTraceSection(model.causeTrace),
+    createHealthSection(model.health),
     currentSection,
     previousSection,
-    diffSection,
-    fieldHistorySection,
-    subscriptionSection,
-    psrSection,
-    controlSection,
+    createDiffSection(model.diffResult),
+    createFieldHistorySection(model.fieldHistory, model.selectedFieldPath),
+    createDerivedTraceSection(model.derivedTrace),
+    createConstraintSection(model.constraints, model.psrEvents),
+    createSubscriptionSection(model.liveStore?.subscriberCount ?? model.store.subscriberCount, model.subscriberIds),
+    createControlSection(model),
   );
 }
 
@@ -304,6 +342,55 @@ function formatTimestamp(timestamp?: number): string {
   }).format(timestamp);
 }
 
+function createCauseTraceSection(trace: CauseTraceStep[]): HTMLElement {
+  const section = document.createElement("section");
+  section.className = "inspector-section";
+  section.append(createSectionHeading("Cause Trace"));
+
+  if (trace.length === 0) {
+    section.append(createEmptyState("No causal chain available yet for this store."));
+    return section;
+  }
+
+  const list = document.createElement("div");
+  list.className = "cause-list";
+
+  trace.forEach((step, index) => {
+    const item = document.createElement("div");
+    item.className = "cause-step";
+    item.textContent = `${index === 0 ? "now" : "caused by"} ${step.label}`;
+    list.append(item);
+  });
+
+  section.append(list);
+  return section;
+}
+
+function createHealthSection(health: StoreHealthReport | null): HTMLElement {
+  const section = document.createElement("section");
+  section.className = "inspector-section";
+  section.append(createSectionHeading("Store Health"));
+
+  if (!health) {
+    section.append(createEmptyState("Health is computed once runtime events arrive."));
+    return section;
+  }
+
+  const score = document.createElement("strong");
+  score.className = "field-history-title";
+  score.textContent = `${health.label} • score ${health.score}`;
+
+  const reasons = document.createElement("div");
+  reasons.className = "badge-row";
+
+  for (const reason of health.reasons.length > 0 ? health.reasons : ["No active health issues."]) {
+    reasons.append(createToken(reason));
+  }
+
+  section.append(score, reasons);
+  return section;
+}
+
 function createDiffSection(result: DiffResult | null): HTMLElement {
   const section = document.createElement("section");
   section.className = "inspector-section";
@@ -381,6 +468,68 @@ function createFieldHistorySection(
   return section;
 }
 
+function createDerivedTraceSection(trace: DerivedTrace | null): HTMLElement {
+  const section = document.createElement("section");
+  section.className = "inspector-section";
+  section.append(createSectionHeading("Derived Trace"));
+
+  if (!trace) {
+    section.append(createEmptyState("Derived trace appears for computed stores."));
+    return section;
+  }
+
+  const expression = document.createElement("code");
+  expression.className = "diff-path";
+  expression.textContent = trace.expression;
+
+  const inputs = document.createElement("div");
+  inputs.className = "badge-row";
+  for (const input of trace.inputs.length > 0 ? trace.inputs : [{ name: "runtime input", changed: false }]) {
+    inputs.append(createToken(`${input.name}${input.changed ? " changed" : " unchanged"}`));
+  }
+
+  const summary = document.createElement("p");
+  summary.className = "ghost-copy";
+  summary.textContent = `recompute count ${trace.recomputeCount}${trace.recomputeCost !== undefined ? ` • cost ${trace.recomputeCost.toFixed(1)}ms` : ""}`;
+
+  section.append(expression, inputs, summary);
+  return section;
+}
+
+function createConstraintSection(
+  constraints: ConstraintState[],
+  events: DevtoolEvent[],
+): HTMLElement {
+  const section = document.createElement("section");
+  section.className = "inspector-section";
+  section.append(createSectionHeading("Live Constraints"));
+
+  if (constraints.length === 0) {
+    section.append(createEmptyState("No live constraint activity detected for this store."));
+    return section;
+  }
+
+  const list = document.createElement("div");
+  list.className = "diff-list";
+  for (const constraint of constraints) {
+    const card = document.createElement("div");
+    card.className = "diff-card";
+    card.textContent = `${constraint.status === "violated" ? "violated" : "ok"} • ${constraint.label} • ${formatTimestamp(constraint.timestamp)}`;
+    list.append(card);
+  }
+
+  if (events.length > 0) {
+    const hint = document.createElement("p");
+    hint.className = "ghost-copy";
+    hint.textContent = `${events.length} PSR events captured for this store.`;
+    section.append(list, hint);
+    return section;
+  }
+
+  section.append(list);
+  return section;
+}
+
 function createSubscriptionSection(subscriberCount: number, subscriberIds: string[]): HTMLElement {
   const section = document.createElement("section");
   section.className = "inspector-section";
@@ -401,30 +550,6 @@ function createSubscriptionSection(subscriberCount: number, subscriberIds: strin
   list.className = "badge-row";
   for (const subscriberId of subscriberIds) {
     list.append(createToken(subscriberId));
-  }
-
-  section.append(list);
-  return section;
-}
-
-function createPsrSection(events: DevtoolEvent[]): HTMLElement {
-  const section = document.createElement("section");
-  section.className = "inspector-section";
-  section.append(createSectionHeading("PSR Events"));
-
-  if (events.length === 0) {
-    section.append(createEmptyState("No PSR activity detected for this store."));
-    return section;
-  }
-
-  const list = document.createElement("div");
-  list.className = "psr-list";
-
-  for (const event of events) {
-    const item = document.createElement("div");
-    item.className = "diff-card";
-    item.textContent = `${event.type} at ${formatTimestamp(event.timestamp)}`;
-    list.append(item);
   }
 
   section.append(list);
