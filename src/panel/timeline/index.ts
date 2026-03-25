@@ -1,3 +1,14 @@
+/**
+ * @module src/panel/timeline/index
+ * @memberof StroidDevtools
+ * @typedef {Record<string, unknown>} ModuleDocShape
+ * @what owns Core logic for src/panel/timeline/index.
+ * @who owns Stroid Devtools maintainers.
+ * @likelyBreakpoint Runtime event normalization, UI render paths, or command routing in this module.
+ * @param {unknown} [input] Module-level JSDoc anchor for tooling consistency.
+ * @returns {void}
+ * @public
+ */
 import { diff, hasDiff, summarizeDiff } from "../../diff/index.js";
 import type { DevtoolEvent, RuntimeMode } from "../../types.js";
 
@@ -180,20 +191,21 @@ function createEmptyState(message: string): HTMLDivElement {
 
 function summarizeEvent(event: DevtoolEvent): string {
   const mutatorLabel = event.mutator ? `${event.mutator} | ` : "";
+  const unsafePrefix = isUnsafePsrCommit(event) ? "unsafe commit | " : "";
   const diffSummary =
     event.before !== undefined || event.after !== undefined
       ? summarizeDiff(diff(event.before, event.after))
       : undefined;
 
   if (event.after !== undefined || event.before !== undefined) {
-    return `${mutatorLabel}${summarizeValue(event.before)} -> ${summarizeValue(event.after)}${diffSummary ? ` (${diffSummary})` : ""}`;
+    return `${unsafePrefix}${mutatorLabel}${summarizeValue(event.before)} -> ${summarizeValue(event.after)}${diffSummary ? ` (${diffSummary})` : ""}`;
   }
 
   if (event.performance?.duration !== undefined) {
-    return `${mutatorLabel}${event.performance.duration.toFixed(1)}ms`;
+    return `${unsafePrefix}${mutatorLabel}${event.performance.duration.toFixed(1)}ms`;
   }
 
-  return `${mutatorLabel}event recorded`;
+  return `${unsafePrefix}${mutatorLabel}event recorded`;
 }
 
 function summarizeValue(value: unknown): string {
@@ -306,6 +318,10 @@ function buildRowClass(
     classes.push("timeline-row--blocked");
   }
 
+  if (isUnsafePsrCommit(event)) {
+    classes.push("timeline-row--unsafe");
+  }
+
   if (
     (event.before !== undefined || event.after !== undefined) &&
     hasDiff(diff(event.before, event.after))
@@ -315,3 +331,17 @@ function buildRowClass(
 
   return classes.join(" ");
 }
+
+function isUnsafePsrCommit(event: DevtoolEvent): boolean {
+  if (event.type !== "psr:commit") {
+    return false;
+  }
+
+  return (
+    event.meta?.unsafe === true ||
+    event.meta?.commitUnsafe === true ||
+    event.meta?.mode === "unsafe"
+  );
+}
+
+
