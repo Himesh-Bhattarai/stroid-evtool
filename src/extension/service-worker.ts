@@ -1,9 +1,21 @@
+/**
+ * @module src/extension/service-worker
+ * @memberof StroidDevtools
+ * @typedef {Record<string, unknown>} ModuleDocShape
+ * @what owns Core logic for src/extension/service-worker.
+ * @who owns Stroid Devtools maintainers.
+ * @likelyBreakpoint Runtime event normalization, UI render paths, or command routing in this module.
+ * @param {unknown} [input] Module-level JSDoc anchor for tooling consistency.
+ * @returns {void}
+ * @public
+ */
 import { createBridgePacket } from "../bridge/channel.js";
 import type { DevtoolCommand } from "../types.js";
 
 const PANEL_PORT_NAME = "stroid-devtools-panel";
-
-const panelPorts = new Map<number, any>();
+const panelPorts = new Set<any>();
+const panelContext = new WeakMap<any, { inspectedTabId: number | null }>();
+const runtimeTargets = new Map<string, { tabId: number; appId: string; lastSeen: number }>();
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (typeof value !== "object" || value === null) {
@@ -36,11 +48,59 @@ function isDevtoolCommand(value: unknown): value is DevtoolCommand {
     case "store:delete":
     case "store:refetch":
       return typeof record.storeId === "string";
+    case "store:trigger-mutator":
+      return (
+        typeof record.storeId === "string" &&
+        typeof record.mutator === "string" &&
+        (record.args === undefined || Array.isArray(record.args))
+      );
+    case "store:create":
+      return (
+        typeof record.storeId === "string" &&
+        (record.storeType === undefined ||
+          record.storeType === "sync" ||
+          record.storeType === "async" ||
+          record.storeType === "derived" ||
+          record.storeType === "unknown")
+      );
     case "store:edit":
       return typeof record.storeId === "string" && "state" in record;
     default:
       return false;
   }
+}
+
+function isBridgeEnvelope(value: unknown): value is { appId?: string } {
+  const record = asRecord(value);
+  return !!record && typeof record.type === "string";
+}
+
+function targetKey(tabId: number, appId: string): string {
+  return `${tabId}:${appId}`;
+}
+
+function listTargets(): Array<{ tabId: number; appId: string; lastSeen: number }> {
+  return [...runtimeTargets.values()].sort((left, right) => {
+    return right.lastSeen - left.lastSeen;
+  });
+}
+
+function notifyTargets(): void {
+  const targets = listTargets();
+  for (const port of panelPorts) {
+    port.postMessage({
+      kind: "stroid:targets",
+      targets,
+    });
+  }
+}
+
+function recordTarget(tabId: number, appId: string): void {
+  runtimeTargets.set(targetKey(tabId, appId), {
+    tabId,
+    appId,
+    lastSeen: Date.now(),
+  });
 }
 
 function forwardCommandToPage(
@@ -59,12 +119,24 @@ function forwardCommandToPage(
   });
 }
 
+function sendHandshakeToKnownTabs(): void {
+  chrome.tabs?.query({}, (tabs: Array<{ id?: number }>) => {
+    for (const tab of tabs) {
+      if (typeof tab.id !== "number") {
+        continue;
+      }
+      forwardCommandToPage(tab.id, { type: "panel:handshake" });
+    }
+  });
+}
+
 chrome.runtime.onConnect.addListener((port: any) => {
   if (port.name !== PANEL_PORT_NAME) {
     return;
   }
 
-  let tabId: number | null = null;
+  panelPorts.add(port);
+  panelContext.set(port, { inspectedTabId: null });
 
   port.onMessage.addListener((message: unknown) => {
     const record = asRecord(message);
@@ -73,19 +145,42 @@ chrome.runtime.onConnect.addListener((port: any) => {
     }
 
     if (record.kind === "stroid:panel-ready" && typeof record.tabId === "number") {
-      tabId = record.tabId;
-      panelPorts.set(record.tabId, port);
+      panelContext.set(port, { inspectedTabId: record.tabId });
+      recordTarget(record.tabId, "stroid-runtime");
+      notifyTargets();
       forwardCommandToPage(record.tabId, { type: "panel:handshake" });
+      sendHandshakeToKnownTabs();
+      return;
+    }
+
+    if (record.kind === "stroid:request-targets") {
+      port.postMessage({
+        kind: "stroid:targets",
+        targets: listTargets(),
+      });
       return;
     }
 
     if (
       record.kind === "stroid:panel-command" &&
-      typeof record.tabId === "number" &&
       isDevtoolCommand(record.command)
     ) {
+      const context = panelContext.get(port);
+      const targetTabId =
+        typeof record.targetTabId === "number"
+          ? record.targetTabId
+          : context?.inspectedTabId;
+
+      if (typeof targetTabId !== "number") {
+        return;
+      }
+
+      if (typeof record.appId === "string") {
+        recordTarget(targetTabId, record.appId);
+      }
+
       forwardCommandToPage(
-        record.tabId,
+        targetTabId,
         record.command,
         typeof record.appId === "string" ? record.appId : undefined,
       );
@@ -93,9 +188,7 @@ chrome.runtime.onConnect.addListener((port: any) => {
   });
 
   port.onDisconnect.addListener(() => {
-    if (tabId !== null && panelPorts.get(tabId) === port) {
-      panelPorts.delete(tabId);
-    }
+    panelPorts.delete(port);
   });
 });
 
@@ -107,13 +200,25 @@ chrome.runtime.onMessage.addListener((message: unknown, sender: any) => {
     return;
   }
 
-  const port = panelPorts.get(tabId);
-  if (!port) {
+  const envelope = asRecord(record.packet)?.envelope;
+  if (!isBridgeEnvelope(envelope)) {
     return;
   }
 
-  port.postMessage({
-    kind: "stroid:panel-envelope",
-    envelope: asRecord(record.packet)?.envelope,
-  });
+  const appId =
+    typeof envelope.appId === "string" && envelope.appId
+      ? envelope.appId
+      : "stroid-runtime";
+  recordTarget(tabId, appId);
+  notifyTargets();
+
+  for (const port of panelPorts) {
+    port.postMessage({
+      kind: "stroid:panel-envelope",
+      sourceTabId: tabId,
+      envelope,
+    });
+  }
 });
+
+
