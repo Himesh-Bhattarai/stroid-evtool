@@ -1,4 +1,5 @@
 import { EventBuffer } from "../buffer/index.js";
+import { diff } from "../diff/index.js";
 import type {
   BridgeEnvelope,
   DevtoolCommand,
@@ -9,17 +10,28 @@ import type {
   StoreType,
 } from "../types.js";
 import { applyDiagnostics, createStoreDiagnostics, type StoreDiagnostics } from "./analytics.js";
+import { renderDependencyGraph } from "./graph/index.js";
+import {
+  buildCauseTrace,
+  buildConstraintStates,
+  buildDependencyEdges,
+  buildDerivedTrace,
+  computeStoreHealth,
+  findEventById,
+} from "./insights.js";
 import { renderStoreInspector } from "./inspector/index.js";
 import { renderStoreRegistry } from "./registry/index.js";
 import { renderTimeline } from "./timeline/index.js";
 
 type ConnectionState = "connecting" | "connected" | "disconnected";
+type RightPanelView = "timeline" | "graph";
 
 interface PanelState {
   appId: string | null;
   stores: Map<string, StroidStoreSnapshot>;
   diagnostics: Map<string, StoreDiagnostics>;
   selectedStoreId: string | null;
+  selectedEventId: string | null;
   selectedFieldByStore: Map<string, string>;
   editDrafts: Map<string, string>;
   editErrors: Map<string, string>;
@@ -30,6 +42,7 @@ interface PanelState {
   storeFilter: string;
   eventTypeFilter: string;
   mode: RuntimeMode;
+  rightPanelView: RightPanelView;
 }
 
 export interface PanelApp {
@@ -52,6 +65,7 @@ export function mountDevtoolsPanel(
     stores: new Map<string, StroidStoreSnapshot>(),
     diagnostics: new Map<string, StoreDiagnostics>(),
     selectedStoreId: null,
+    selectedEventId: null,
     selectedFieldByStore: new Map<string, string>(),
     editDrafts: new Map<string, string>(),
     editErrors: new Map<string, string>(),
@@ -62,6 +76,7 @@ export function mountDevtoolsPanel(
     storeFilter: "all",
     eventTypeFilter: "all",
     mode: "debug",
+    rightPanelView: "timeline",
   };
 
   const render = (): void => {
@@ -81,7 +96,7 @@ export function mountDevtoolsPanel(
 
     const copy = document.createElement("p");
     copy.textContent =
-      "Phase 2: structural diff, async diagnostics, live controls, and filtered timeline replay.";
+      "Phase 3: dependency graph, cause tracing, jump-to-state, store health, and reactive system insight.";
 
     brand.append(heading, copy);
 
@@ -100,6 +115,9 @@ export function mountDevtoolsPanel(
     const layout = document.createElement("main");
     layout.className = "layout-grid";
 
+    const allEvents = state.events.getAll();
+    const dependencyEdges = buildDependencyEdges(state.stores, allEvents);
+
     const registryColumn = document.createElement("section");
     registryColumn.className = "panel-column";
     renderStoreRegistry(
@@ -114,6 +132,7 @@ export function mountDevtoolsPanel(
       {
         onSelectStore(storeId) {
           state.selectedStoreId = storeId;
+          state.selectedEventId = null;
           render();
         },
         onCommand(command) {
@@ -122,55 +141,76 @@ export function mountDevtoolsPanel(
       },
     );
 
-    const selectedStore = state.selectedStoreId
+    const liveStore = state.selectedStoreId
       ? state.stores.get(state.selectedStoreId) ?? null
       : null;
-    const diagnostics = selectedStore
-      ? state.diagnostics.get(selectedStore.storeId) ?? createStoreDiagnostics()
+    const diagnostics = liveStore
+      ? state.diagnostics.get(liveStore.storeId) ?? createStoreDiagnostics()
       : null;
+    const snapshotEvent =
+      liveStore && state.selectedEventId
+        ? findEventById(allEvents, state.selectedEventId)
+        : null;
+    const selectedStore =
+      liveStore && snapshotEvent && snapshotEvent.storeId === liveStore.storeId
+        ? buildSnapshotStore(liveStore, snapshotEvent)
+        : liveStore;
     const fieldHistory = diagnostics
       ? [...diagnostics.fieldHistory.entries()].map(([path, points]) => ({ path, points }))
       : [];
-    const selectedFieldPath = selectedStore
-      ? state.selectedFieldByStore.get(selectedStore.storeId) ?? fieldHistory[0]?.path ?? null
+    const selectedFieldPath = liveStore
+      ? state.selectedFieldByStore.get(liveStore.storeId) ?? fieldHistory[0]?.path ?? null
       : null;
+    const diffResult =
+      snapshotEvent && (snapshotEvent.before !== undefined || snapshotEvent.after !== undefined)
+        ? diff(snapshotEvent.before, snapshotEvent.after)
+        : diagnostics?.lastDiff ?? null;
 
     const inspectorColumn = document.createElement("section");
     inspectorColumn.className = "panel-column panel-column--wide";
     renderStoreInspector(inspectorColumn, {
       store: selectedStore,
-      diffResult: diagnostics?.lastDiff ?? null,
+      liveStore,
+      diffResult,
       fieldHistory,
       selectedFieldPath,
       subscriberIds: diagnostics?.subscriberIds ?? [],
       alerts: diagnostics?.alerts ?? [],
       psrEvents: diagnostics?.psrEvents ?? [],
-      editDraft: selectedStore ? state.editDrafts.get(selectedStore.storeId) ?? safeStringify(selectedStore.currentState) : "",
-      editError: selectedStore ? state.editErrors.get(selectedStore.storeId) ?? null : null,
+      causeTrace: liveStore ? buildCauseTrace(liveStore.storeId, allEvents) : [],
+      derivedTrace: buildDerivedTrace(liveStore, allEvents),
+      constraints: liveStore ? buildConstraintStates(liveStore.storeId, allEvents) : [],
+      health: liveStore ? computeStoreHealth(liveStore, diagnostics ?? undefined) : null,
+      snapshotEvent,
+      editDraft:
+        liveStore
+          ? state.editDrafts.get(liveStore.storeId) ?? safeStringify(liveStore.currentState)
+          : "",
+      editError: liveStore ? state.editErrors.get(liveStore.storeId) ?? null : null,
       onDraftChange(value) {
-        if (!selectedStore) {
+        if (!liveStore) {
           return;
         }
 
-        state.editDrafts.set(selectedStore.storeId, value);
-        state.editErrors.delete(selectedStore.storeId);
+        state.editDrafts.set(liveStore.storeId, value);
+        state.editErrors.delete(liveStore.storeId);
       },
       onApplyDraft() {
-        if (!selectedStore) {
+        if (!liveStore) {
           return;
         }
 
         try {
-          const parsed = JSON.parse(state.editDrafts.get(selectedStore.storeId) ?? "null");
-          state.editErrors.delete(selectedStore.storeId);
+          const parsed = JSON.parse(state.editDrafts.get(liveStore.storeId) ?? "null");
+          state.editErrors.delete(liveStore.storeId);
           options.sendCommand({
             type: "store:edit",
-            storeId: selectedStore.storeId,
+            storeId: liveStore.storeId,
             state: parsed,
           });
         } catch (error) {
           state.editErrors.set(
-            selectedStore.storeId,
+            liveStore.storeId,
             error instanceof Error ? error.message : String(error),
           );
         }
@@ -178,60 +218,95 @@ export function mountDevtoolsPanel(
         render();
       },
       onSelectField(path) {
-        if (!selectedStore) {
+        if (!liveStore) {
           return;
         }
 
-        state.selectedFieldByStore.set(selectedStore.storeId, path);
+        state.selectedFieldByStore.set(liveStore.storeId, path);
+        render();
+      },
+      onClearSnapshot() {
+        state.selectedEventId = null;
         render();
       },
     });
 
-    const timelineColumn = document.createElement("section");
-    timelineColumn.className = "panel-column";
-    renderTimeline(timelineColumn, {
-      events: state.events.getAll(),
-      selectedStoreId: state.selectedStoreId,
-      paused: state.paused,
-      droppedEventCount: state.droppedEventCount,
-      storeFilter: state.storeFilter,
-      eventTypeFilter: state.eventTypeFilter,
-      availableStores: listStoreFilters(state),
-      availableEventTypes: listEventTypeFilters(state),
-      mode: state.mode,
-      onPauseToggle() {
-        state.paused = !state.paused;
-        render();
-      },
-      onClear() {
-        state.events.clear();
-        state.diagnostics = new Map<string, StoreDiagnostics>();
-        state.droppedEventCount = 0;
-        state.storeFilter = "all";
-        state.eventTypeFilter = "all";
-        render();
-      },
-      onStoreFilterChange(value) {
-        state.storeFilter = value;
-        render();
-      },
-      onEventTypeFilterChange(value) {
-        state.eventTypeFilter = value;
-        render();
-      },
-      onModeChange(mode) {
-        state.mode = mode;
-        options.sendCommand({ type: "devtools:set-mode", mode });
-        render();
-      },
-      onReplay(speed) {
-        state.mode = "replay";
-        options.sendCommand({ type: "devtools:replay", speed });
-        render();
-      },
-    });
+    const rightColumn = document.createElement("section");
+    rightColumn.className = "panel-column";
 
-    layout.append(registryColumn, inspectorColumn, timelineColumn);
+    if (state.rightPanelView === "graph") {
+      renderDependencyGraph(rightColumn, {
+        stores: [...state.stores.values()],
+        edges: dependencyEdges,
+        selectedStoreId: state.selectedStoreId,
+        onSelectStore(storeId) {
+          state.selectedStoreId = storeId;
+          state.selectedEventId = null;
+          render();
+        },
+        onViewChange(view) {
+          state.rightPanelView = view;
+          render();
+        },
+      });
+    } else {
+      renderTimeline(rightColumn, {
+        events: allEvents,
+        selectedStoreId: state.selectedStoreId,
+        selectedEventId: state.selectedEventId,
+        paused: state.paused,
+        droppedEventCount: state.droppedEventCount,
+        storeFilter: state.storeFilter,
+        eventTypeFilter: state.eventTypeFilter,
+        availableStores: listStoreFilters(state),
+        availableEventTypes: listEventTypeFilters(state),
+        mode: state.mode,
+        onPauseToggle() {
+          state.paused = !state.paused;
+          render();
+        },
+        onClear() {
+          state.events.clear();
+          state.diagnostics = new Map<string, StoreDiagnostics>();
+          state.droppedEventCount = 0;
+          state.storeFilter = "all";
+          state.eventTypeFilter = "all";
+          state.selectedEventId = null;
+          render();
+        },
+        onStoreFilterChange(value) {
+          state.storeFilter = value;
+          render();
+        },
+        onEventTypeFilterChange(value) {
+          state.eventTypeFilter = value;
+          render();
+        },
+        onModeChange(mode) {
+          state.mode = mode;
+          options.sendCommand({ type: "devtools:set-mode", mode });
+          render();
+        },
+        onReplay(speed) {
+          state.mode = "replay";
+          options.sendCommand({ type: "devtools:replay", speed });
+          render();
+        },
+        onViewChange(view) {
+          state.rightPanelView = view;
+          render();
+        },
+        onJumpToEvent(eventId, storeId) {
+          state.selectedEventId = eventId;
+          if (storeId) {
+            state.selectedStoreId = storeId;
+          }
+          render();
+        },
+      });
+    }
+
+    layout.append(registryColumn, inspectorColumn, rightColumn);
     shell.append(topbar, layout);
     root.append(shell);
   };
@@ -310,6 +385,10 @@ function applyEvent(state: PanelState, event: DevtoolEvent, recordDiagnostics: b
     state.editDrafts.delete(event.storeId);
     state.editErrors.delete(event.storeId);
     state.selectedFieldByStore.delete(event.storeId);
+    if (state.selectedStoreId === event.storeId) {
+      state.selectedStoreId = null;
+      state.selectedEventId = null;
+    }
     return;
   }
 
@@ -516,7 +595,14 @@ function countAlerts(state: PanelState): number {
 }
 
 function listStoreFilters(state: PanelState): string[] {
-  return [...new Set([...state.stores.keys(), ...state.events.getAll().flatMap((event) => event.storeId ? [event.storeId] : [])])].sort();
+  return [
+    ...new Set([
+      ...state.stores.keys(),
+      ...state.events
+        .getAll()
+        .flatMap((event) => (event.storeId ? [event.storeId] : [])),
+    ]),
+  ].sort();
 }
 
 function listEventTypeFilters(state: PanelState): string[] {
@@ -544,4 +630,17 @@ function ensureDraft(state: PanelState, storeId: string): void {
 
 function safeStringify(value: unknown): string {
   return JSON.stringify(value ?? null, null, 2);
+}
+
+function buildSnapshotStore(
+  liveStore: StroidStoreSnapshot,
+  event: DevtoolEvent,
+): StroidStoreSnapshot {
+  return {
+    ...liveStore,
+    currentState: event.after ?? liveStore.currentState,
+    previousState: event.before ?? liveStore.previousState,
+    updatedAt: event.timestamp,
+    lastEventId: event.id,
+  };
 }
