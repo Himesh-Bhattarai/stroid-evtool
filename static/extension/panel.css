@@ -469,6 +469,11 @@ pre,
   border-color: rgba(255, 123, 135, 0.3);
 }
 
+.timeline-row--unsafe {
+  border-color: rgba(255, 179, 102, 0.4);
+  background: rgba(255, 179, 102, 0.12);
+}
+
 .timeline-summary {
   margin-top: 10px;
   color: #d9e6f2;
@@ -542,6 +547,12 @@ pre,
   stroke-width: 3;
 }
 
+.graph-edge--flash {
+  stroke: rgba(67, 217, 164, 0.9);
+  stroke-width: 3;
+  animation: graphFlash 1.2s ease-out infinite;
+}
+
 .graph-node {
   cursor: pointer;
 }
@@ -564,6 +575,62 @@ pre,
 .graph-node--selected circle {
   stroke: rgba(255, 179, 102, 0.9);
   fill: rgba(255, 179, 102, 0.12);
+}
+
+.graph-node--flash circle {
+  stroke: rgba(67, 217, 164, 0.95);
+  stroke-width: 3;
+  animation: nodeFlash 1s ease-out infinite;
+}
+
+.constraint-heatmap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.constraint-heat-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) minmax(120px, 2fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.constraint-heat-rail {
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.constraint-heat-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(255, 179, 102, 0.35), rgba(255, 123, 135, 0.85));
+}
+
+@keyframes graphFlash {
+  0% {
+    stroke-opacity: 0.4;
+  }
+  50% {
+    stroke-opacity: 1;
+  }
+  100% {
+    stroke-opacity: 0.4;
+  }
+}
+
+@keyframes nodeFlash {
+  0% {
+    fill-opacity: 0.3;
+  }
+  50% {
+    fill-opacity: 0.9;
+  }
+  100% {
+    fill-opacity: 0.3;
+  }
 }
 
 .empty-state,
